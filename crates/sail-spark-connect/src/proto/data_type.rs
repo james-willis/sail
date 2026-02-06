@@ -244,8 +244,18 @@ impl TryFrom<DataType> for spec::DataType {
                     sql_type: Box::new(spec::DataType::try_from(*sql_type)?),
                 })
             }
-            Kind::Geometry(_) => Err(SparkError::todo("geometry data type")),
-            Kind::Geography(_) => Err(SparkError::todo("geography data type")),
+            Kind::Geometry(geometry) => {
+                let srid = geometry.srid;
+                Ok(spec::DataType::Geometry { srid })
+            }
+            Kind::Geography(geography) => {
+                let srid = geography.srid;
+                // Geography always defaults to Spherical algorithm in Spark 4.1
+                Ok(spec::DataType::Geography {
+                    srid,
+                    algorithm: spec::EdgeInterpolationAlgorithm::Spherical,
+                })
+            }
             Kind::Unparsed(sdt::Unparsed { data_type_string }) => {
                 Ok(parse_spark_data_type(data_type_string.as_str())?)
             }
@@ -256,6 +266,10 @@ impl TryFrom<DataType> for spec::DataType {
 
 #[cfg(test)]
 mod tests {
+    // Tests are allowed to use panic for assertions
+    #![allow(clippy::panic)]
+
+    use sail_common::spec;
     use sail_common::tests::test_gold_set;
 
     use super::{parse_spark_data_type, DEFAULT_FIELD_NAME};
@@ -277,5 +291,127 @@ mod tests {
             |s: String| Ok(parse_spark_data_type(&s)?.into_schema(DEFAULT_FIELD_NAME, true)),
             |e: String| SparkError::internal(e),
         )
+    }
+
+    #[test]
+    fn test_geometry_proto_conversion() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geometry, Kind};
+
+        let proto_type = crate::spark::connect::DataType {
+            kind: Some(Kind::Geometry(Geometry {
+                srid: 4326,
+                type_variation_reference: 0,
+            })),
+        };
+
+        let spec_type = spec::DataType::try_from(proto_type)?;
+
+        match spec_type {
+            spec::DataType::Geometry { srid } => {
+                assert_eq!(srid, 4326);
+            }
+            _ => panic!("Expected Geometry type"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_geography_proto_conversion() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geography, Kind};
+
+        // Note: In Spark 4.1, only SRID 4326 is valid for Geography.
+        // SRID 3857 (Web Mercator) is valid for Geometry but NOT for Geography,
+        // as it's a Cartesian projection, not a geographic CRS.
+        let proto_type = crate::spark::connect::DataType {
+            kind: Some(Kind::Geography(Geography {
+                srid: 4326,
+                type_variation_reference: 0,
+            })),
+        };
+
+        let spec_type = spec::DataType::try_from(proto_type)?;
+
+        match spec_type {
+            spec::DataType::Geography { srid, algorithm } => {
+                assert_eq!(srid, 4326);
+                // Geography always defaults to Spherical algorithm in Spark 4.1
+                assert_eq!(algorithm, spec::EdgeInterpolationAlgorithm::Spherical);
+            }
+            _ => panic!("Expected Geography type"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_geometry_default_srid() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geometry, Kind};
+
+        let proto_type = crate::spark::connect::DataType {
+            kind: Some(Kind::Geometry(Geometry {
+                srid: 0,
+                type_variation_reference: 0,
+            })),
+        };
+
+        let spec_type = spec::DataType::try_from(proto_type)?;
+
+        match spec_type {
+            spec::DataType::Geometry { srid } => {
+                assert_eq!(srid, 0);
+            }
+            _ => panic!("Expected Geometry type"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_geography_default_srid() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geography, Kind};
+
+        let proto_type = crate::spark::connect::DataType {
+            kind: Some(Kind::Geography(Geography {
+                srid: 4326,
+                type_variation_reference: 0,
+            })),
+        };
+
+        let spec_type = spec::DataType::try_from(proto_type)?;
+
+        match spec_type {
+            spec::DataType::Geography { srid, algorithm } => {
+                assert_eq!(srid, 4326);
+                assert_eq!(algorithm, spec::EdgeInterpolationAlgorithm::Spherical);
+            }
+            _ => panic!("Expected Geography type"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_geometry_mixed_srid() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geometry, Kind};
+
+        // Test mixed SRID (-1) which allows different SRIDs per row
+        let proto_type = crate::spark::connect::DataType {
+            kind: Some(Kind::Geometry(Geometry {
+                srid: -1,
+                type_variation_reference: 0,
+            })),
+        };
+
+        let spec_type = spec::DataType::try_from(proto_type)?;
+
+        match spec_type {
+            spec::DataType::Geometry { srid } => {
+                assert_eq!(srid, -1);
+            }
+            _ => panic!("Expected Geometry type"),
+        }
+
+        Ok(())
     }
 }

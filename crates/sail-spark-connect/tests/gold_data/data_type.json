@@ -848,6 +848,86 @@
       "output": {
         "success": "null"
       }
+    },
+    {
+      "input": "geometry(4326)",
+      "output": {
+        "success": {
+          "geometry": {
+            "srid": 4326
+          }
+        }
+      }
+    },
+    {
+      "input": "geometry(3857)",
+      "output": {
+        "success": {
+          "geometry": {
+            "srid": 3857
+          }
+        }
+      }
+    },
+    {
+      "input": "geometry(0)",
+      "output": {
+        "success": {
+          "geometry": {
+            "srid": 0
+          }
+        }
+      }
+    },
+    {
+      "input": "geometry(ANY)",
+      "output": {
+        "success": {
+          "geometry": {
+            "srid": -1
+          }
+        }
+      }
+    },
+    {
+      "input": "geometry(1234)",
+      "output": {
+        "failure": "error in JSON serde: expected value at line 1 column 1"
+      }
+    },
+    {
+      "input": "geography(4326)",
+      "output": {
+        "success": {
+          "geography": {
+            "srid": 4326,
+            "algorithm": "spherical"
+          }
+        }
+      }
+    },
+    {
+      "input": "geography(ANY)",
+      "output": {
+        "success": {
+          "geography": {
+            "srid": -1,
+            "algorithm": "spherical"
+          }
+        }
+      }
+    },
+    {
+      "input": "geography(3857)",
+      "output": {
+        "failure": "error in JSON serde: expected value at line 1 column 1"
+      }
+    },
+    {
+      "input": "geography(0)",
+      "output": {
+        "failure": "error in JSON serde: expected value at line 1 column 1"
+      }
     }
   ]
 }

@@ -6,11 +6,38 @@ use sail_common::spec;
 use sail_common::spec::{
     SAIL_LIST_FIELD_NAME, SAIL_MAP_FIELD_NAME, SAIL_MAP_KEY_FIELD_NAME, SAIL_MAP_VALUE_FIELD_NAME,
 };
+use serde_json::json;
 
 use crate::config::DefaultTimestampType;
 use crate::error::{PlanError, PlanResult};
 use crate::resolver::state::PlanResolverState;
 use crate::resolver::PlanResolver;
+
+/// Map SRID to Spark 4.1 CRS (Coordinate Reference System) string format.
+///
+/// Spark 4.1's CartesianSpatialReferenceSystemMapper and GeographicSpatialReferenceSystemMapper
+/// map SRID integers to OGC-compliant CRS identifiers. This function emulates that mapping
+/// for commonly supported SRIDs.
+///
+/// References:
+/// - org.apache.spark.sql.types.GeometryType#crs
+/// - org.apache.spark.sql.types.GeographyType#crs
+/// - org.apache.spark.sql.catalyst.util.CartesianSpatialReferenceSystemMapper
+/// - org.apache.spark.sql.catalyst.util.GeographicSpatialReferenceSystemMapper
+fn srid_to_crs(srid: i32) -> String {
+    match srid {
+        // WGS84 - universal geographic CRS, used for both Geometry and Geography
+        4326 => "OGC:CRS84".to_string(),
+        // Web Mercator - Cartesian projection, valid for Geometry only
+        3857 => "EPSG:3857".to_string(),
+        // Unspecified CRS
+        0 => "SRID:0".to_string(),
+        // Mixed SRID: allows different SRIDs per row
+        -1 => "SRID:ANY".to_string(),
+        // Generic fallback for other SRIDs
+        _ => format!("EPSG:{}", srid),
+    }
+}
 
 impl PlanResolver<'_> {
     fn arrow_binary_type(&self, state: &mut PlanResolverState) -> adt::DataType {
@@ -200,6 +227,21 @@ impl PlanResolver<'_> {
                     *keys_sorted,
                 ))
             }
+            DataType::Geometry { srid: _ } => {
+                // Geometry types are stored as Binary (WKB-encoded)
+                // Extension type metadata is added at the Field level, not DataType level
+                // See resolve_field() for metadata handling
+                Ok(adt::DataType::Binary)
+            }
+            DataType::Geography {
+                srid: _,
+                algorithm: _,
+            } => {
+                // Geography types are stored as Binary (WKB-encoded)
+                // Extension type metadata is added at the Field level, not DataType level
+                // See resolve_field() for metadata handling
+                Ok(adt::DataType::Binary)
+            }
             DataType::ConfiguredUtf8 { utf8_type: _ } => {
                 // FIXME: Currently `length` and `utf8_type` is lost in translation.
                 //  This impacts accuracy if `spec::ConfiguredUtf8Type` is `VarChar` or `Char`.
@@ -247,6 +289,52 @@ impl PlanResolver<'_> {
                     );
                 }
                 sql_type
+            }
+            spec::DataType::Geometry { srid } => {
+                // Add geoarrow extension type metadata for WKB-encoded geometries
+                // Geometry uses Cartesian (planar) coordinate system
+                //
+                // ARROW:extension:* keys follow the Apache Arrow extension type standard:
+                // - ARROW:extension:name: the extension type identifier (e.g., "geoarrow.wkb")
+                // - ARROW:extension:metadata: extension-specific metadata (JSON format)
+                //
+                // These keys are automatically filtered from Spark client responses and do not
+                // leak user-facing metadata, which allows us to use Arrow's standard namespace
+                // without conflict. See data_type_arrow.rs line 120 for the filtering logic.
+                metadata.insert(
+                    "ARROW:extension:name".to_string(),
+                    "geoarrow.wkb".to_string(),
+                );
+                // Use mixed CRS format for SRID -1, otherwise map SRID to Spark 4.1 CRS format
+                let crs = srid_to_crs(*srid);
+                let ext_metadata = json!({"crs": crs, "edges": "planar"}).to_string();
+                metadata.insert("ARROW:extension:metadata".to_string(), ext_metadata);
+                data_type
+            }
+            spec::DataType::Geography { srid, algorithm } => {
+                // Add geoarrow extension type metadata for WKB-encoded geographies
+                // Geography uses spherical (geodetic) coordinate system
+                //
+                // ARROW:extension:* keys follow the Apache Arrow extension type standard:
+                // - ARROW:extension:name: the extension type identifier (e.g., "geoarrow.wkb")
+                // - ARROW:extension:metadata: extension-specific metadata (JSON format)
+                //
+                // These keys are automatically filtered from Spark client responses and do not
+                // leak user-facing metadata, which allows us to use Arrow's standard namespace
+                // without conflict. See data_type_arrow.rs line 120 for the filtering logic.
+                metadata.insert(
+                    "ARROW:extension:name".to_string(),
+                    "geoarrow.wkb".to_string(),
+                );
+                // Map SRID to Spark 4.1 CRS format
+                let crs = srid_to_crs(*srid);
+                let edges = match algorithm {
+                    spec::EdgeInterpolationAlgorithm::Spherical => "spherical",
+                    spec::EdgeInterpolationAlgorithm::Planar => "planar",
+                };
+                let ext_metadata = json!({"crs": crs, "edges": edges}).to_string();
+                metadata.insert("ARROW:extension:metadata".to_string(), ext_metadata);
+                data_type
             }
             x => x,
         };

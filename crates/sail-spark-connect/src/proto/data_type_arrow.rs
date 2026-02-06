@@ -5,11 +5,73 @@ use datafusion::arrow::datatypes as adt;
 use crate::error::{SparkError, SparkResult};
 use crate::spark::connect::{data_type as sdt, DataType};
 
+/// GeoArrow extension metadata extracted from Arrow field metadata.
+#[derive(Debug, Clone)]
+struct GeoArrowMetadata {
+    /// Edge interpolation: "planar" for Geometry, "spherical" for Geography
+    edges: String,
+    /// Spatial Reference System Identifier (SRID). -1 for mixed SRID.
+    srid: i32,
+}
+
+impl GeoArrowMetadata {
+    /// Parse GeoArrow metadata from JSON string.
+    /// Defaults to planar edges and SRID 4326 if parsing fails.
+    ///
+    /// Supports Spark 4.1 CRS formats:
+    /// - "OGC:CRS84" → SRID 4326 (WGS84)
+    /// - "EPSG:{srid}" → direct SRID mapping
+    /// - "SRID:0" → SRID 0 (unspecified)
+    /// - "SRID:ANY" → SRID -1 (mixed)
+    fn from_json(metadata: &str) -> Self {
+        let parsed = serde_json::from_str::<serde_json::Value>(metadata).ok();
+
+        let edges = parsed
+            .as_ref()
+            .and_then(|v| v.get("edges").and_then(|e| e.as_str()))
+            .unwrap_or("planar")
+            .to_string();
+
+        let srid = parsed
+            .and_then(|v| {
+                v.get("crs").and_then(|crs| crs.as_str()).and_then(|s| {
+                    // Handle Spark 4.1 CRS string formats
+                    match s {
+                        "OGC:CRS84" => Some(4326),
+                        "SRID:ANY" => Some(-1),
+                        "SRID:0" => Some(0),
+                        _ if s.starts_with("EPSG:") => {
+                            s.strip_prefix("EPSG:").and_then(|n| n.parse::<i32>().ok())
+                        }
+                        _ if s.starts_with("SRID:") => {
+                            s.strip_prefix("SRID:").and_then(|n| n.parse::<i32>().ok())
+                        }
+                        _ => None,
+                    }
+                })
+            })
+            .unwrap_or(4326);
+
+        Self { edges, srid }
+    }
+
+    /// Returns true if this represents a Geography type (spherical edges).
+    fn is_geography(&self) -> bool {
+        self.edges == "spherical"
+    }
+}
+
 impl TryFrom<adt::Field> for sdt::StructField {
     type Error = SparkError;
 
     fn try_from(field: adt::Field) -> SparkResult<sdt::StructField> {
         let is_udt = field.metadata().keys().any(|k| k.starts_with("udt."));
+        let is_geoarrow = field
+            .metadata()
+            .get("ARROW:extension:name")
+            .map(|v| v == "geoarrow.wkb")
+            .unwrap_or(false);
+
         let data_type = if is_udt {
             DataType {
                 kind: Some(sdt::Kind::Udt(Box::new(sdt::Udt {
@@ -23,14 +85,39 @@ impl TryFrom<adt::Field> for sdt::StructField {
                     sql_type: Some(Box::new(field.data_type().clone().try_into()?)),
                 }))),
             }
+        } else if is_geoarrow {
+            // Parse geoarrow extension metadata to determine Geometry vs Geography
+            let ext_metadata = field
+                .metadata()
+                .get("ARROW:extension:metadata")
+                .cloned()
+                .unwrap_or_default();
+            let geo_meta = GeoArrowMetadata::from_json(&ext_metadata);
+
+            if geo_meta.is_geography() {
+                DataType {
+                    kind: Some(sdt::Kind::Geography(sdt::Geography {
+                        srid: geo_meta.srid,
+                        type_variation_reference: 0,
+                    })),
+                }
+            } else {
+                DataType {
+                    kind: Some(sdt::Kind::Geometry(sdt::Geometry {
+                        srid: geo_meta.srid,
+                        type_variation_reference: 0,
+                    })),
+                }
+            }
         } else {
             field.data_type().clone().try_into()?
         };
         // FIXME: The metadata. prefix is managed by Sail and the convention should be respected everywhere.
+        // Also filter out Arrow extension metadata (geoarrow, etc.) which is internal to Sail
         let metadata = &field
             .metadata()
             .iter()
-            .filter(|(k, _)| !k.starts_with("udt."))
+            .filter(|(k, _)| !k.starts_with("udt.") && !k.starts_with("ARROW:extension:"))
             .map(|(k, v)| {
                 let parsed = serde_json::from_str::<serde_json::Value>(v)
                     .unwrap_or_else(|_| serde_json::Value::String(v.clone()));
@@ -170,5 +257,162 @@ impl TryFrom<adt::DataType> for DataType {
             | adt::DataType::Decimal64(_, _) => return Err(error(&data_type)),
         };
         Ok(DataType { kind: Some(kind) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Tests are allowed to use panic for assertions
+    #![allow(clippy::panic)]
+
+    use super::*;
+    use crate::error::SparkResult;
+
+    #[test]
+    fn test_geoarrow_metadata_parsing() {
+        // Test planar (Geometry default) with Spark 4.1 CRS format
+        let metadata = r#"{"crs":"OGC:CRS84","edges":"planar"}"#;
+        let parsed = GeoArrowMetadata::from_json(metadata);
+        assert_eq!(parsed.edges, "planar");
+        assert_eq!(parsed.srid, 4326);
+        assert!(!parsed.is_geography());
+
+        // Test spherical (Geography) with Spark 4.1 CRS format
+        let metadata = r#"{"crs":"OGC:CRS84","edges":"spherical"}"#;
+        let parsed = GeoArrowMetadata::from_json(metadata);
+        assert_eq!(parsed.edges, "spherical");
+        assert_eq!(parsed.srid, 4326);
+        assert!(parsed.is_geography());
+
+        // Test Web Mercator projection (Cartesian, valid for Geometry only)
+        let metadata = r#"{"crs":"EPSG:3857","edges":"planar"}"#;
+        let parsed = GeoArrowMetadata::from_json(metadata);
+        assert_eq!(parsed.srid, 3857);
+
+        // Test mixed SRID format
+        let metadata = r#"{"crs":"SRID:ANY","edges":"planar"}"#;
+        let parsed = GeoArrowMetadata::from_json(metadata);
+        assert_eq!(parsed.srid, -1);
+
+        // Test default when edges not present
+        let metadata = r#"{"crs":"OGC:CRS84"}"#;
+        let parsed = GeoArrowMetadata::from_json(metadata);
+        assert_eq!(parsed.edges, "planar");
+
+        // Test default when CRS not present
+        let metadata = r#"{"edges":"planar"}"#;
+        let parsed = GeoArrowMetadata::from_json(metadata);
+        assert_eq!(parsed.srid, 4326);
+
+        // Test default on invalid JSON
+        let parsed = GeoArrowMetadata::from_json("invalid");
+        assert_eq!(parsed.edges, "planar");
+        assert_eq!(parsed.srid, 4326);
+    }
+
+    #[test]
+    fn test_geoarrow_field_to_proto_geometry() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geometry, Kind};
+
+        // Create an Arrow field with geoarrow.wkb metadata for Geometry
+        // Note: CRS "OGC:CRS84" is the Spark 4.1 standard format for SRID 4326
+        let metadata: HashMap<String, String> = [
+            (
+                "ARROW:extension:name".to_string(),
+                "geoarrow.wkb".to_string(),
+            ),
+            (
+                "ARROW:extension:metadata".to_string(),
+                r#"{"crs":"OGC:CRS84","edges":"planar"}"#.to_string(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let field = adt::Field::new("geom", adt::DataType::Binary, true).with_metadata(metadata);
+
+        let proto_field: sdt::StructField = field.try_into()?;
+
+        assert_eq!(proto_field.name, "geom");
+        match proto_field.data_type {
+            Some(DataType {
+                kind: Some(Kind::Geometry(Geometry { srid, .. })),
+            }) => {
+                assert_eq!(srid, 4326);
+            }
+            _ => panic!("Expected Geometry proto type"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_geoarrow_field_to_proto_geography() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geography, Kind};
+
+        // Create an Arrow field with geoarrow.wkb metadata for Geography (spherical)
+        // Note: In Spark 4.1, only SRID 4326 is valid for Geography.
+        // SRID 3857 (Web Mercator) is valid for Geometry but NOT for Geography,
+        // as it's a Cartesian projection, not a geographic CRS.
+        // CRS "OGC:CRS84" is the Spark 4.1 standard format for SRID 4326
+        let metadata: HashMap<String, String> = [
+            (
+                "ARROW:extension:name".to_string(),
+                "geoarrow.wkb".to_string(),
+            ),
+            (
+                "ARROW:extension:metadata".to_string(),
+                r#"{"crs":"OGC:CRS84","edges":"spherical"}"#.to_string(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let field = adt::Field::new("geog", adt::DataType::Binary, true).with_metadata(metadata);
+
+        let proto_field: sdt::StructField = field.try_into()?;
+
+        assert_eq!(proto_field.name, "geog");
+        match proto_field.data_type {
+            Some(DataType {
+                kind: Some(Kind::Geography(Geography { srid, .. })),
+            }) => {
+                assert_eq!(srid, 4326);
+            }
+            _ => panic!("Expected Geography proto type"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_geoarrow_field_mixed_srid() -> SparkResult<()> {
+        use crate::spark::connect::data_type::{Geometry, Kind};
+
+        // Test mixed SRID (-1) support
+        let metadata: HashMap<String, String> = [
+            (
+                "ARROW:extension:name".to_string(),
+                "geoarrow.wkb".to_string(),
+            ),
+            (
+                "ARROW:extension:metadata".to_string(),
+                r#"{"crs":"SRID:ANY","edges":"planar"}"#.to_string(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let field = adt::Field::new("geom", adt::DataType::Binary, true).with_metadata(metadata);
+
+        let proto_field: sdt::StructField = field.try_into()?;
+
+        match proto_field.data_type {
+            Some(DataType {
+                kind: Some(Kind::Geometry(Geometry { srid, .. })),
+            }) => {
+                assert_eq!(srid, -1);
+            }
+            _ => panic!("Expected Geometry proto type with mixed SRID"),
+        }
+
+        Ok(())
     }
 }

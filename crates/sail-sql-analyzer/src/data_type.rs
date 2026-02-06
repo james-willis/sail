@@ -258,5 +258,37 @@ pub fn from_ast_data_type(sql_type: DataType) -> SqlResult<spec::DataType> {
                 keys_sorted: false,
             })
         }
+        DataType::Geometry(_, _, srid, _) => {
+            let srid_value = match srid {
+                sail_sql_parser::ast::data_type::GeometrySrid::Srid(lit) => lit.value as i32,
+                sail_sql_parser::ast::data_type::GeometrySrid::Any(_) => -1,
+            };
+            // Validate SRID against Spark 4.1's CartesianSpatialReferenceSystemMapper
+            // Valid SRIDs for Geometry: 0 (unspecified), 3857 (Web Mercator), 4326 (WGS84), -1 (mixed)
+            if !matches!(srid_value, 0 | 3857 | 4326 | -1) {
+                return Err(SqlError::invalid(format!(
+                    "SRID {srid_value} is not valid for GEOMETRY. Valid values: 0, 3857, 4326, or ANY"
+                )));
+            }
+            Ok(spec::DataType::Geometry { srid: srid_value })
+        }
+        DataType::Geography(_, _, srid, _) => {
+            let srid_value = match srid {
+                sail_sql_parser::ast::data_type::GeographySrid::Srid(lit) => lit.value as i32,
+                sail_sql_parser::ast::data_type::GeographySrid::Any(_) => -1,
+            };
+            // Validate SRID against Spark 4.1's GeographicSpatialReferenceSystemMapper
+            // Valid SRIDs for Geography: 4326 (WGS84), -1 (mixed)
+            // Note: 3857 (Web Mercator) is NOT valid for Geography as it's a Cartesian projection
+            if !matches!(srid_value, 4326 | -1) {
+                return Err(SqlError::invalid(format!(
+                    "SRID {srid_value} is not valid for GEOGRAPHY. Valid values: 4326 or ANY"
+                )));
+            }
+            Ok(spec::DataType::Geography {
+                srid: srid_value,
+                algorithm: spec::EdgeInterpolationAlgorithm::Spherical,
+            })
+        }
     }
 }
