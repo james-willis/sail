@@ -1948,7 +1948,13 @@ impl PhysicalExtensionCodec for RemoteExecutionCodec {
             "try_url_decode" => Ok(Arc::new(ScalarUDF::from(TryUrlDecode::new()))),
             "url_decode" => Ok(Arc::new(ScalarUDF::from(UrlDecode::new()))),
             "url_encode" => Ok(Arc::new(ScalarUDF::from(UrlEncode::new()))),
-            _ => plan_err!("could not find scalar function: {name}"),
+            _ => {
+                if let Some(udf) = sail_sedona::get_sedona_scalar_udf(name) {
+                    Ok(udf)
+                } else {
+                    plan_err!("could not find scalar function: {name}")
+                }
+            }
         }
     }
 
@@ -2164,7 +2170,13 @@ impl PhysicalExtensionCodec for RemoteExecutionCodec {
                 "skewness" => Ok(Arc::new(AggregateUDF::from(SkewnessFunc::new()))),
                 "try_avg" => Ok(Arc::new(AggregateUDF::from(TryAvgFunction::new()))),
                 "try_sum" => Ok(Arc::new(AggregateUDF::from(SparkTrySum::new()))),
-                _ => plan_err!("Could not find Aggregate Function: {name}"),
+                _ => {
+                    if let Some(udaf) = sail_sedona::get_sedona_aggregate_udf(name) {
+                        Ok(udaf)
+                    } else {
+                        plan_err!("Could not find Aggregate Function: {name}")
+                    }
+                }
             },
             Some(UdafKind::PySparkGroupAgg(gen::PySparkGroupAggUdaf {
                 name,

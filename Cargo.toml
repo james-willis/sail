@@ -171,6 +171,27 @@ object_store = { version = "0.12.4", features = ["aws", "gcp", "azure", "http"] 
 hdfs-native-object-store = "0.15.0"
 
 ######
+# SedonaDB geospatial function crates
+# Using git deps because path deps across workspaces break manifest inheritance.
+# To use a local checkout for development, add overrides in [patch] below.
+######
+sedona-common = { git = "https://github.com/apache/sedona-db" }
+sedona-schema = { git = "https://github.com/apache/sedona-db" }
+sedona-geometry = { git = "https://github.com/apache/sedona-db" }
+sedona-expr = { git = "https://github.com/apache/sedona-db" }
+sedona-raster = { git = "https://github.com/apache/sedona-db" }
+sedona-functions = { git = "https://github.com/apache/sedona-db" }
+sedona-geo = { git = "https://github.com/apache/sedona-db" }
+sedona-geo-generic-alg = { git = "https://github.com/apache/sedona-db" }
+sedona-geo-traits-ext = { git = "https://github.com/apache/sedona-db" }
+sedona-geos = { git = "https://github.com/apache/sedona-db" }
+sedona-tg = { git = "https://github.com/apache/sedona-db" }
+sedona-proj = { git = "https://github.com/apache/sedona-db", default-features = false }
+sedona-raster-functions = { git = "https://github.com/apache/sedona-db" }
+sedona-spatial-join = { git = "https://github.com/apache/sedona-db" }
+sedona-testing = { git = "https://github.com/apache/sedona-db" }
+
+######
 # This is the end of the manually managed dependencies.
 # Do not add more dependencies below.
 ######
