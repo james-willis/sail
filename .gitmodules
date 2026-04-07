@@ -1,0 +1,3 @@
+[submodule "external/sedona-db"]
+	path = external/sedona-db
+	url = https://github.com/apache/sedona-db.git
