@@ -530,6 +530,21 @@ fn list_built_in_aggregate_functions() -> Vec<(&'static str, AggFunction)> {
         ("var_samp", F::default(variance::var_samp_udaf)),
         ("variance", F::default(variance::var_samp_udaf)),
     ]
+    .into_iter()
+    .chain(list_built_in_geo_aggregate_functions())
+    .collect()
+}
+
+fn list_built_in_geo_aggregate_functions() -> Vec<(&'static str, AggFunction)> {
+    use crate::function::common::AggFunctionBuilder as F;
+
+    sail_sedona::sedona_aggregate_udfs()
+        .map(|(name, udaf)| {
+            let static_name: &'static str = Box::leak(name.to_string().into_boxed_str());
+            let builder: AggFunction = F::default(move || udaf.clone());
+            (static_name, builder)
+        })
+        .collect()
 }
 
 pub(crate) fn get_built_in_aggregate_function(name: &str) -> PlanResult<AggFunction> {
