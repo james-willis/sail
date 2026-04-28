@@ -1,25 +1,27 @@
 #!/bin/bash
-# Build a manylinux aarch64 wheel for pysail with sedona integration.
+# Build a manylinux x86_64 wheel for pysail with sedona integration.
+# Produces dist/pysail-*-manylinux_2_28_x86_64.whl, suitable for Intel/AMD Linux hosts.
 set -e
 
 docker run --rm \
-  --platform linux/arm64 \
+  --platform linux/amd64 \
   -v "$(pwd)":/io \
   -w /io \
-  quay.io/pypa/manylinux_2_28_aarch64:latest \
+  quay.io/pypa/manylinux_2_28_x86_64:latest \
   bash -c '
     set -e
     echo "=== Installing system deps ==="
-    dnf install -y geos-devel cmake openssl-devel perl-IPC-Cmd 2>/dev/null || \
-      yum install -y geos-devel cmake3 openssl-devel 2>/dev/null || true
+    dnf install -y geos-devel cmake openssl-devel perl-IPC-Cmd protobuf-compiler 2>/dev/null || \
+      yum install -y geos-devel cmake3 openssl-devel protobuf-compiler 2>/dev/null || true
 
     # If geos-devel not in repo, build from source
     if ! pkg-config --exists geos 2>/dev/null; then
       echo "Building GEOS from source..."
-      curl -L https://download.osgeo.org/geos/geos-3.13.1.tar.bz2 | tar xj
+      rm -rf geos-3.13.1
+      curl -L https://download.osgeo.org/geos/geos-3.13.1.tar.bz2 | tar xj --no-same-owner
       cd geos-3.13.1
-      mkdir build && cd build
-      cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=Release
+      mkdir -p build && cd build
+      cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
       make -j$(nproc)
       make install
       cd /io
@@ -36,6 +38,10 @@ docker run --rm \
 
     echo "=== Building wheel ==="
     export PYO3_PYTHON=/opt/python/cp311-cp311/bin/python3.11
+    # Pin to the baseline x86_64 ISA (SSE2 only) so the wheel runs on any
+    # Intel or AMD 64-bit CPU. Do NOT use target-cpu=native here — it would
+    # bake in the build hosts feature set and break on older processors.
+    export RUSTFLAGS="-C target-cpu=x86-64"
     /opt/python/cp311-cp311/bin/maturin build \
       --release \
       --interpreter /opt/python/cp311-cp311/bin/python3.11 \
