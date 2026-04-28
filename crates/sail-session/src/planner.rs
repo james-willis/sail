@@ -54,6 +54,8 @@ use sail_physical_plan::streaming::limit::StreamLimitExec;
 use sail_physical_plan::streaming::source_adapter::StreamSourceAdapterExec;
 use sail_plan::catalog::CatalogCommandNode;
 use sail_plan_lakehouse::new_lakehouse_extension_planners;
+use sedona_query_planner::spatial_join_physical_planner::SpatialJoinExtensionPlanner;
+use sedona_spatial_join::physical_planner::DefaultSpatialJoinPhysicalPlanner;
 
 #[derive(Debug)]
 pub struct ExtensionQueryPlanner {}
@@ -76,6 +78,13 @@ impl QueryPlanner for ExtensionQueryPlanner {
         }
         let mut extension_planners = new_lakehouse_extension_planners();
         extension_planners.push(Arc::new(SystemTablePhysicalPlanner));
+        // Sedona spatial-join planner: turns SpatialJoinPlanNode (produced by
+        // register_spatial_join_logical_optimizer) into SpatialJoinExec. Must be
+        // listed before ExtensionPhysicalPlanner since the latter errors on any
+        // unrecognized extension node instead of returning Ok(None).
+        extension_planners.push(Arc::new(SpatialJoinExtensionPlanner::new(vec![Arc::new(
+            DefaultSpatialJoinPhysicalPlanner::new(),
+        )])));
         extension_planners.push(Arc::new(ExtensionPhysicalPlanner));
         let planner = DefaultPhysicalPlanner::with_extension_planners(extension_planners);
         planner

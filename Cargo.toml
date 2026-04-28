@@ -189,6 +189,7 @@ sedona-tg = { git = "https://github.com/apache/sedona-db" }
 sedona-proj = { git = "https://github.com/apache/sedona-db", default-features = false }
 sedona-raster-functions = { git = "https://github.com/apache/sedona-db" }
 sedona-spatial-join = { git = "https://github.com/apache/sedona-db" }
+sedona-query-planner = { git = "https://github.com/apache/sedona-db" }
 sedona-testing = { git = "https://github.com/apache/sedona-db" }
 
 ######
