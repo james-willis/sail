@@ -2901,9 +2901,9 @@ dependencies = [
 
 [[package]]
 name = "fastrand"
-version = "2.3.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
+checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "ferroid"
@@ -3195,6 +3195,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo-index"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f310ad245e63f6b5fcf4a7c2663139708eae1374045396eef95ea3badd242d57"
+dependencies = [
+ "bytemuck",
+ "float_next_after 1.0.0",
+ "geo",
+ "geo-traits",
+ "num-traits",
+ "thiserror 1.0.69",
+ "tinyvec",
+]
+
+[[package]]
 name = "geo-traits"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3231,15 +3246,16 @@ dependencies = [
 
 [[package]]
 name = "geojson"
-version = "0.24.2"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e26f3c45b36fccc9cf2805e61d4da6bc4bbd5a3a9589b01afa3a40eff703bd79"
+checksum = "510c094bfc76ea34d02eee00833254945b70491d79a9c0b050abed6eaa799ffb"
 dependencies = [
  "geo-types",
  "log",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tinyvec",
 ]
 
 [[package]]
@@ -4274,9 +4290,9 @@ checksum = "2c4a545a15244c7d945065b5d392b2d2d7f21526fba56ce51467b06ed445e8f7"
 
 [[package]]
 name = "libc"
-version = "0.2.180"
+version = "0.2.185"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
+checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
 name = "libloading"
@@ -4476,9 +4492,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.1.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
+checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
 dependencies = [
  "libc",
  "wasi",
@@ -6797,6 +6813,9 @@ dependencies = [
  "sail-sql-analyzer",
  "sail-telemetry",
  "secrecy",
+ "sedona-common",
+ "sedona-query-planner",
+ "sedona-spatial-join",
  "thiserror 2.0.18",
  "tokio",
  "tonic",
@@ -7032,7 +7051,7 @@ dependencies = [
 [[package]]
 name = "sedona-common"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "datafusion",
  "datafusion-common",
@@ -7042,7 +7061,7 @@ dependencies = [
 [[package]]
 name = "sedona-expr"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7061,7 +7080,7 @@ dependencies = [
 [[package]]
 name = "sedona-functions"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7083,7 +7102,7 @@ dependencies = [
 [[package]]
 name = "sedona-geo"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7106,7 +7125,7 @@ dependencies = [
 [[package]]
 name = "sedona-geo-generic-alg"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "float_next_after 2.0.0",
  "geo-traits",
@@ -7122,7 +7141,7 @@ dependencies = [
 [[package]]
 name = "sedona-geo-traits-ext"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "byteorder",
  "geo-traits",
@@ -7134,7 +7153,7 @@ dependencies = [
 [[package]]
 name = "sedona-geometry"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "geo-traits",
  "lru",
@@ -7147,7 +7166,7 @@ dependencies = [
 [[package]]
 name = "sedona-geos"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7168,7 +7187,7 @@ dependencies = [
 [[package]]
 name = "sedona-proj"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7187,9 +7206,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sedona-query-planner"
+version = "0.4.0"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
+dependencies = [
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-execution",
+ "datafusion-expr",
+ "datafusion-physical-expr",
+ "datafusion-physical-plan",
+ "sedona-common",
+ "sedona-expr",
+ "sedona-schema",
+]
+
+[[package]]
 name = "sedona-raster"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7201,7 +7238,7 @@ dependencies = [
 [[package]]
 name = "sedona-raster-functions"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7222,7 +7259,7 @@ dependencies = [
 [[package]]
 name = "sedona-schema"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7233,9 +7270,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "sedona-spatial-join"
+version = "0.4.0"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
+dependencies = [
+ "arrow",
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-common-runtime",
+ "datafusion-execution",
+ "datafusion-expr",
+ "datafusion-physical-expr",
+ "datafusion-physical-plan",
+ "fastrand",
+ "float_next_after 2.0.0",
+ "futures",
+ "geo",
+ "geo-index",
+ "geo-traits",
+ "geo-types",
+ "geos",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "pin-project-lite",
+ "sedona-common",
+ "sedona-expr",
+ "sedona-functions",
+ "sedona-geo",
+ "sedona-geo-generic-alg",
+ "sedona-geo-traits-ext",
+ "sedona-geometry",
+ "sedona-geos",
+ "sedona-query-planner",
+ "sedona-schema",
+ "sedona-tg",
+ "tokio",
+ "wkb",
+]
+
+[[package]]
 name = "sedona-tg"
 version = "0.4.0"
-source = "git+https://github.com/apache/sedona-db#f1d95a0d1c177d0e22ba9a882fc80ab47e166eeb"
+source = "git+https://github.com/apache/sedona-db#21473cb579cc3f00e8ba33a816220f6ebac50a0c"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7534,12 +7614,12 @@ checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
 
 [[package]]
 name = "socket2"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
+checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7891,6 +7971,7 @@ version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa5fdc3bce6191a1dbc8c02d5c8bffcf557bafa17c124c5264a458f1b0613fa"
 dependencies = [
+ "serde",
  "tinyvec_macros",
 ]
 
@@ -7902,9 +7983,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.49.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72a2903cd7736441aac9df9d7688bd0ce48edccaadf181c3b90be801e81d3d86"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "bytes",
  "libc",
@@ -7919,9 +8000,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af407857209536a95c8e56f8231ef2c2e2aff839b22e07a1ffcbc617e9db9fa5"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
 dependencies = [
  "proc-macro2",
  "quote",
