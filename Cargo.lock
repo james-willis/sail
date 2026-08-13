@@ -6947,6 +6947,7 @@ dependencies = [
  "pyo3",
  "sail-cli",
  "sail-common",
+ "sail-sedona",
  "sail-spark-connect",
  "sail-telemetry",
  "tokio",

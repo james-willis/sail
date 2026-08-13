@@ -50,13 +50,8 @@ pub fn build_sedona_function_set() -> Result<FunctionSet> {
         }
     }
 
-    // Register PROJ kernels (ST_Transform)
-    #[cfg(feature = "proj")]
-    {
-        for (name, kernel) in sedona_proj::register::scalar_kernels() {
-            functions.add_scalar_udf_impl(name, kernel)?;
-        }
-    }
+    // ST_Transform kernels are registered by sedona-functions; the `proj`
+    // feature supplies the CRS engine behind them (see configure_proj_engine).
 
     // Register raster functions
     #[cfg(feature = "raster")]
@@ -96,6 +91,34 @@ lazy_static! {
             })
             .collect()
     };
+}
+
+/// Configure the global PROJ CRS engine used by ST_Transform.
+///
+/// libproj is loaded dynamically at runtime; callers pass the path to a
+/// PROJ shared library (e.g. the one bundled inside the pyproj wheel),
+/// its proj.db, and a resource search path. Any argument may be None to
+/// let sedona-proj use its platform defaults.
+#[cfg(feature = "proj")]
+pub fn configure_proj_engine(
+    shared_library_path: Option<String>,
+    database_path: Option<String>,
+    search_path: Option<String>,
+) -> Result<()> {
+    use sedona_proj::register::{configure_global_proj_engine, ProjCrsEngineBuilder};
+
+    let mut builder = ProjCrsEngineBuilder::default();
+    if let Some(path) = shared_library_path {
+        builder = builder.with_shared_library(path.into());
+    }
+    if let Some(path) = database_path {
+        builder = builder.with_database_path(path.into());
+    }
+    if let Some(path) = search_path {
+        builder = builder.with_search_paths(vec![path.into()]);
+    }
+    configure_global_proj_engine(builder)
+        .map_err(|e| datafusion_common::DataFusionError::External(Box::new(e)))
 }
 
 /// Look up a SedonaDB scalar UDF by name (for execution codec).
