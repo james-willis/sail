@@ -3,6 +3,7 @@ pub mod avro;
 pub mod binary;
 pub mod console;
 pub mod csv;
+pub mod geoparquet;
 pub mod json;
 pub mod listing;
 pub mod parquet;

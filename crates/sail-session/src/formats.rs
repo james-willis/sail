@@ -7,6 +7,7 @@ use sail_data_source::formats::avro::AvroTableFormat;
 use sail_data_source::formats::binary::BinaryTableFormat;
 use sail_data_source::formats::console::ConsoleTableFormat;
 use sail_data_source::formats::csv::CsvTableFormat;
+use sail_data_source::formats::geoparquet::GeoParquetTableFormat;
 use sail_data_source::formats::json::JsonTableFormat;
 use sail_data_source::formats::parquet::ParquetTableFormat;
 use sail_data_source::formats::python::{discover_data_sources, PythonTableFormat};
@@ -28,6 +29,7 @@ fn register_builtin_formats(registry: &Arc<TableFormatRegistry>) -> Result<()> {
     registry.register(Arc::new(AvroTableFormat::default()))?;
     registry.register(Arc::new(BinaryTableFormat::default()))?;
     registry.register(Arc::new(CsvTableFormat::default()))?;
+    registry.register(Arc::new(GeoParquetTableFormat::default()))?;
     registry.register(Arc::new(JsonTableFormat::default()))?;
     registry.register(Arc::new(ParquetTableFormat::default()))?;
     registry.register(Arc::new(TextTableFormat::default()))?;

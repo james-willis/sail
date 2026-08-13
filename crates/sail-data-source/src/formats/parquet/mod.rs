@@ -12,7 +12,7 @@ use crate::formats::parquet::options::{
     resolve_parquet_read_options, resolve_parquet_write_options,
 };
 
-mod options;
+pub(crate) mod options;
 
 pub type ParquetTableFormat = ListingTableFormat<ParquetListingFormat>;
 

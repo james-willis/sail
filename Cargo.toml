@@ -190,6 +190,7 @@ sedona-proj = { git = "https://github.com/apache/sedona-db", rev = "1245541bb3e2
 sedona-raster-functions = { git = "https://github.com/apache/sedona-db", rev = "1245541bb3e24bb52c9f2e4df4b9fa23dead20cd" }
 sedona-spatial-join = { git = "https://github.com/apache/sedona-db", rev = "1245541bb3e24bb52c9f2e4df4b9fa23dead20cd" }
 sedona-query-planner = { git = "https://github.com/apache/sedona-db", rev = "1245541bb3e24bb52c9f2e4df4b9fa23dead20cd" }
+sedona-geoparquet = { git = "https://github.com/apache/sedona-db", rev = "1245541bb3e24bb52c9f2e4df4b9fa23dead20cd" }
 sedona-testing = { git = "https://github.com/apache/sedona-db", rev = "1245541bb3e24bb52c9f2e4df4b9fa23dead20cd" }
 
 ######
