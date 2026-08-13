@@ -37,7 +37,16 @@ def _configure_proj_from_pyproj() -> None:
             libs_dir = Path(pyproj.__file__).parent.parent / "pyproj.libs"
             if libs_dir.exists():
                 candidates.extend(libs_dir.glob("libproj*.so*"))
+        if not candidates:
+            # Conda-style env: pyproj links <prefix>/lib/libproj.so and the
+            # data dir is <prefix>/share/proj.
+            lib_dir = data_dir.parent.parent / "lib"
+            if lib_dir.exists():
+                pattern = "libproj*.dylib" if sys.platform == "darwin" else "libproj.so*"
+                candidates.extend(lib_dir.glob(pattern))
         if candidates:
+            # Prefer the main library (shortest name) over versioned variants.
+            candidates.sort(key=lambda p: len(p.name))
             _native.configure_proj_shared(
                 str(candidates[0]),
                 str(data_dir / "proj.db"),
