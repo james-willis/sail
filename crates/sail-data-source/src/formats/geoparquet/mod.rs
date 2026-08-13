@@ -193,6 +193,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_write_geoparquet_roundtrip() -> Result<()> {
+        use datafusion::datasource::memory::MemorySourceConfig;
+        use datafusion::physical_plan::collect;
+        use sail_common_datafusion::datasource::{PhysicalSinkMode, SinkInfo};
+
+        let dir = tempfile::tempdir().map_err(|e| DataFusionError::External(e.into()))?;
+
+        // Input batches with a WKB geometry column annotated as geoarrow.wkb,
+        // as Sail's plan resolver produces for the Spark Geometry type with
+        // SRID 4326 (see `srid_to_crs` in sail-plan). Note that the
+        // sedona-geoparquet writer rejects geometry columns with a null CRS.
+        let geometry_field = Field::new("geometry", DataType::Binary, true).with_metadata(
+            [
+                (
+                    "ARROW:extension:name".to_string(),
+                    "geoarrow.wkb".to_string(),
+                ),
+                (
+                    "ARROW:extension:metadata".to_string(),
+                    r#"{"crs":"OGC:CRS84"}"#.to_string(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            geometry_field,
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2])),
+                Arc::new(BinaryArray::from_vec(vec![
+                    &wkb_point(1.0, 2.0),
+                    &wkb_point(3.0, 4.0),
+                ])),
+            ],
+        )?;
+        let input = MemorySourceConfig::try_new_from_batches(schema, vec![batch])?;
+
+        let ctx = SessionContext::new();
+        let state = ctx.state();
+        let format = GeoParquetTableFormat::default();
+        let writer = format
+            .create_writer(
+                &state,
+                SinkInfo {
+                    input,
+                    path: dir.path().to_string_lossy().to_string(),
+                    mode: PhysicalSinkMode::Append,
+                    partition_by: vec![],
+                    bucket_by: None,
+                    sort_order: None,
+                    table_properties: Default::default(),
+                    options: vec![],
+                },
+            )
+            .await?;
+        collect(writer, ctx.task_ctx()).await?;
+
+        // Read the written files back; the geo footer metadata written by
+        // sedona-geoparquet must be inferred as the geoarrow.wkb extension type.
+        let provider = format
+            .create_provider(&state, source_info(dir.path()))
+            .await?;
+        let field = provider.schema().field_with_name("geometry")?.clone();
+        assert_eq!(
+            field.metadata().get("ARROW:extension:name").map(String::as_str),
+            Some("geoarrow.wkb")
+        );
+        let batches = ctx.read_table(provider)?.collect().await?;
+        let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        assert_eq!(rows, 2);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_read_plain_parquet_through_geoparquet_format() -> Result<()> {
         let dir = tempfile::tempdir().map_err(|e| DataFusionError::External(e.into()))?;
         let path = dir.path().join("part-0.parquet");
