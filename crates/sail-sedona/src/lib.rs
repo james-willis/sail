@@ -101,6 +101,31 @@ lazy_static! {
     };
 }
 
+/// Register SedonaOptions on a SessionConfig, wiring the PROJ-backed CRS
+/// engine into the runtime when the `proj` feature is enabled (mirrors
+/// sedona-db's own context setup). Without this, ST_Transform sees the
+/// DefaultCrsEngine and fails with "no CrsEngine registered" even when the
+/// global PROJ engine has been configured.
+pub fn add_sedona_option_extension(
+    config: datafusion::execution::context::SessionConfig,
+) -> datafusion::execution::context::SessionConfig {
+    use sedona_common::option::SedonaOptions;
+
+    #[allow(unused_mut)]
+    let mut config = config.with_option_extension(SedonaOptions::default());
+    #[cfg(feature = "proj")]
+    if let Some(opts) = config
+        .options_mut()
+        .extensions
+        .get_mut::<SedonaOptions>()
+    {
+        opts.runtime = opts
+            .runtime
+            .with_crs_engine(std::sync::Arc::new(sedona_proj::transform::LazyProjEngine));
+    }
+    config
+}
+
 /// Configure the global PROJ CRS engine used by ST_Transform.
 ///
 /// libproj is loaded dynamically at runtime; callers pass the path to a

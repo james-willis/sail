@@ -32,6 +32,7 @@ sail-cache = { path = "../sail-cache" }
 sail-telemetry = { path = "../sail-telemetry" }
 sail-sql-analyzer = { path = "../sail-sql-analyzer" }
 
+sail-sedona = { path = "../sail-sedona" }
 sedona-common = { workspace = true }
 sedona-spatial-join = { workspace = true }
 sedona-query-planner = { workspace = true }

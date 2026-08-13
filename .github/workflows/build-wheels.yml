@@ -13,7 +13,8 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           command: build
-          # cp311 matches the Python in the Wherobots runtime images.
+          # Pin one CPython for a reproducible build; the wheel is abi3, so
+          # it runs on any Python >= 3.8.
           args: --release --out dist -i python3.11
           manylinux: "2_28"
           sccache: true
