@@ -562,6 +562,21 @@ mod tests {
         );
     }
 
+    /// Compare a metadata value as JSON so key ordering does not matter.
+    fn assert_metadata_json_value(
+        metadata_map: &HashMap<String, String>,
+        key: &str,
+        expected_json: &str,
+    ) {
+        let actual: serde_json::Value = metadata_map
+            .get(key)
+            .and_then(|value| serde_json::from_str(value).ok())
+            .unwrap_or_else(|| panic!("Expected JSON {} in metadata, got: {:?}", key, metadata_map));
+        let expected: serde_json::Value =
+            serde_json::from_str(expected_json).expect("expected value must be valid JSON");
+        assert_eq!(actual, expected, "Mismatched {} in metadata", key);
+    }
+
     #[tokio::test]
     async fn test_st_geomfromwkb_returns_geometry_metadata() -> PlanResult<()> {
         let ctx = create_session()?;
@@ -593,11 +608,9 @@ mod tests {
         let metadata_map: HashMap<_, _> = metadata.clone().into_iter().collect();
 
         assert_metadata_value(&metadata_map, "ARROW:extension:name", "geoarrow.wkb");
-        assert_metadata_value(
-            &metadata_map,
-            "ARROW:extension:metadata",
-            r#"{"crs":"SRID:0"}"#,
-        );
+        // sedona-db no longer emits an explicit "SRID:0" CRS for bare geometries;
+        // empty metadata means "no explicit CRS".
+        assert_metadata_json_value(&metadata_map, "ARROW:extension:metadata", "{}");
 
         Ok(())
     }
@@ -633,7 +646,7 @@ mod tests {
         let metadata_map: HashMap<_, _> = metadata.clone().into_iter().collect();
 
         assert_metadata_value(&metadata_map, "ARROW:extension:name", "geoarrow.wkb");
-        assert_metadata_value(
+        assert_metadata_json_value(
             &metadata_map,
             "ARROW:extension:metadata",
             r#"{"crs":"OGC:CRS84","edges":"spherical"}"#,

@@ -22,7 +22,7 @@ use sail_execution::worker_manager::{
 };
 use sail_physical_optimizer::{get_physical_optimizers, PhysicalOptimizerOptions};
 use sail_server::actor::{ActorHandle, ActorSystem};
-use sedona_common::option::add_sedona_option_extension;
+use sedona_common::option::SedonaOptions;
 use sedona_query_planner::optimizer::register_spatial_join_logical_optimizer;
 
 use crate::catalog::create_catalog_manager;
@@ -124,7 +124,7 @@ impl ServerSessionFactory {
         self.apply_execution_config(&mut config);
         self.apply_execution_parquet_config(&mut config);
         // Register SedonaOptions so spatial-join optimizer rules can read their config.
-        let config = add_sedona_option_extension(config);
+        let config = config.with_option_extension(SedonaOptions::default());
         let config = self.mutator.mutate_config(config, info)?;
         Ok(config)
     }
