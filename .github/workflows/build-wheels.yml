@@ -22,8 +22,13 @@ jobs:
           # build-linux-wheel.sh.
           before-script-linux: |
             set -e
-            dnf install -y cmake openssl-devel perl-IPC-Cmd protobuf-compiler 2>/dev/null || \
-              yum install -y cmake3 openssl-devel protobuf-compiler 2>/dev/null || true
+            dnf install -y cmake openssl-devel perl-IPC-Cmd unzip 2>/dev/null || \
+              yum install -y cmake3 openssl-devel unzip 2>/dev/null || true
+            # The distro protoc is too old (no --experimental_allow_proto3_optional);
+            # install a modern one from GitHub releases.
+            curl -sL -o /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-x86_64.zip
+            unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+            export PROTOC=/usr/local/bin/protoc
             if ! pkg-config --exists geos 2>/dev/null; then
               echo "Building GEOS from source..."
               curl -L https://download.osgeo.org/geos/geos-3.13.1.tar.bz2 | tar xj --no-same-owner
@@ -49,8 +54,8 @@ jobs:
         with:
           submodules: true
 
-      - name: Install GEOS
-        run: brew install geos
+      - name: Install GEOS and protoc
+        run: brew install geos protobuf
 
       - uses: actions/setup-python@v5
         with:
