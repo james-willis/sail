@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use datafusion::prelude::SessionContext;
 use datafusion_common::Result;
-use datafusion_expr::{AggregateUDF, AggregateUDFImpl, ScalarUDF, ScalarUDFImpl};
+use datafusion_expr::{AggregateUDF, ScalarUDF};
 use lazy_static::lazy_static;
 use sedona_expr::function_set::FunctionSet;
 
@@ -75,21 +75,29 @@ pub fn register_sedona_udfs(ctx: &SessionContext) -> Result<()> {
 lazy_static! {
     static ref SEDONA_SCALAR_REGISTRY: HashMap<String, Arc<ScalarUDF>> = {
         let fs = build_sedona_function_set().expect("failed to build sedona function set");
-        fs.scalar_udfs()
-            .map(|udf| {
-                let name = udf.name().to_string();
-                (name, Arc::new(ScalarUDF::from(udf.clone())))
-            })
-            .collect()
+        let mut registry = HashMap::new();
+        for udf in fs.scalar_udfs() {
+            let udf = Arc::new(ScalarUDF::from(udf.clone()));
+            // Register under the primary name and every alias (e.g.
+            // st_geomfromtext -> st_geomfromwkt) so Spark-style names resolve.
+            registry.insert(udf.name().to_string(), udf.clone());
+            for alias in udf.aliases() {
+                registry.entry(alias.clone()).or_insert_with(|| udf.clone());
+            }
+        }
+        registry
     };
     static ref SEDONA_AGGREGATE_REGISTRY: HashMap<String, Arc<AggregateUDF>> = {
         let fs = build_sedona_function_set().expect("failed to build sedona function set");
-        fs.aggregate_udfs()
-            .map(|udaf| {
-                let name = udaf.name().to_string();
-                (name, Arc::new(AggregateUDF::from(udaf.clone())))
-            })
-            .collect()
+        let mut registry = HashMap::new();
+        for udaf in fs.aggregate_udfs() {
+            let udaf = Arc::new(AggregateUDF::from(udaf.clone()));
+            registry.insert(udaf.name().to_string(), udaf.clone());
+            for alias in udaf.aliases() {
+                registry.entry(alias.clone()).or_insert_with(|| udaf.clone());
+            }
+        }
+        registry
     };
 }
 
