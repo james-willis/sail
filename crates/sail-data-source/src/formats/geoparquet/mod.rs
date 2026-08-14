@@ -19,14 +19,24 @@
 //! - `geometry_columns`: JSON metadata overrides for schema inference (read)
 //! - `validate`: validate geometry against metadata (read)
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::catalog::Session;
 use datafusion::config::ConfigField;
+use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig, FileSource};
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion_common::parsers::CompressionTypeVariant;
-use datafusion_common::Result;
+use datafusion_common::stats::Precision;
+use datafusion_common::{Result, Statistics};
+use datafusion_datasource::file_compression_type::FileCompressionType;
 use datafusion_datasource::file_format::FileFormat;
+use datafusion::physical_expr::LexRequirement;
+use datafusion_datasource::TableSchema;
+use object_store::{ObjectMeta, ObjectStore};
 use sedona_geoparquet::format::GeoParquetFormat;
 use sedona_geoparquet::options::TableGeoParquetOptions;
 
@@ -62,6 +72,108 @@ fn apply_geoparquet_options(
     Ok(())
 }
 
+/// A [FileFormat] wrapper around [GeoParquetFormat] that reports inexact
+/// column statistics for extension-typed columns (e.g. `geoarrow.wkb`).
+///
+/// DataFusion's Parquet opener replaces column references whose file
+/// statistics prove them constant (exact min == max, no nulls) with plain
+/// literal expressions, and the physical expression simplifier then folds
+/// away the metadata-preserving column wrappers that `sedona-geoparquet`
+/// uses to keep Arrow extension metadata attached to column references
+/// inside file-embedded projections. The resulting literals lose the
+/// extension typing, so spatial function kernels no longer match (e.g.
+/// `st_astext(binary): No kernel matching arguments` when scanning a file
+/// whose geometry column holds a single value). Reporting the min/max and
+/// null-count statistics of extension-typed columns as inexact keeps such
+/// columns as column references, preserving their extension typing.
+///
+/// Min/max statistics on WKB bytes carry no pruning value (spatial pruning
+/// uses GeoParquet metadata instead), so this loses nothing.
+#[derive(Debug)]
+struct ExtensionTypeStatsFormat {
+    inner: GeoParquetFormat,
+}
+
+#[async_trait]
+impl FileFormat for ExtensionTypeStatsFormat {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn get_ext(&self) -> String {
+        self.inner.get_ext()
+    }
+
+    fn get_ext_with_compression(
+        &self,
+        file_compression_type: &FileCompressionType,
+    ) -> Result<String> {
+        self.inner.get_ext_with_compression(file_compression_type)
+    }
+
+    fn compression_type(&self) -> Option<FileCompressionType> {
+        self.inner.compression_type()
+    }
+
+    async fn infer_schema(
+        &self,
+        state: &dyn Session,
+        store: &Arc<dyn ObjectStore>,
+        objects: &[ObjectMeta],
+    ) -> Result<SchemaRef> {
+        self.inner.infer_schema(state, store, objects).await
+    }
+
+    async fn infer_stats(
+        &self,
+        state: &dyn Session,
+        store: &Arc<dyn ObjectStore>,
+        table_schema: SchemaRef,
+        object: &ObjectMeta,
+    ) -> Result<Statistics> {
+        let mut statistics = self
+            .inner
+            .infer_stats(state, store, Arc::clone(&table_schema), object)
+            .await?;
+        for (field, column_statistics) in table_schema
+            .fields()
+            .iter()
+            .zip(statistics.column_statistics.iter_mut())
+        {
+            if field.metadata().contains_key("ARROW:extension:name") {
+                column_statistics.min_value = column_statistics.min_value.clone().to_inexact();
+                column_statistics.max_value = column_statistics.max_value.clone().to_inexact();
+                column_statistics.null_count = Precision::Absent;
+            }
+        }
+        Ok(statistics)
+    }
+
+    async fn create_physical_plan(
+        &self,
+        state: &dyn Session,
+        conf: FileScanConfig,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        self.inner.create_physical_plan(state, conf).await
+    }
+
+    async fn create_writer_physical_plan(
+        &self,
+        input: Arc<dyn ExecutionPlan>,
+        state: &dyn Session,
+        conf: FileSinkConfig,
+        order_requirements: Option<LexRequirement>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        self.inner
+            .create_writer_physical_plan(input, state, conf, order_requirements)
+            .await
+    }
+
+    fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
+        self.inner.file_source(table_schema)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct GeoParquetListingFormat;
 
@@ -79,7 +191,9 @@ impl ListingFormat for GeoParquetListingFormat {
         let parquet_options = resolve_parquet_read_options(ctx, options.clone())?;
         let mut geo_options = TableGeoParquetOptions::from(parquet_options);
         apply_geoparquet_options(&mut geo_options, &options)?;
-        Ok(Arc::new(GeoParquetFormat::new(geo_options)))
+        Ok(Arc::new(ExtensionTypeStatsFormat {
+            inner: GeoParquetFormat::new(geo_options),
+        }))
     }
 
     fn create_write_format(

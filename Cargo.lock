@@ -7067,6 +7067,7 @@ dependencies = [
  "sedona-common",
  "sedona-query-planner",
  "sedona-spatial-join",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tonic",

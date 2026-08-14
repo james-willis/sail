@@ -3,12 +3,17 @@
 // function registration system. It assembles SedonaDB's FunctionSet and
 // provides lookup APIs for Sail's plan resolver and execution codec.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use datafusion::arrow::datatypes::{DataType, FieldRef};
 use datafusion::prelude::SessionContext;
 use datafusion_common::Result;
-use datafusion_expr::{AggregateUDF, ScalarUDF};
+use datafusion_expr::{
+    AggregateUDF, ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl,
+    Signature,
+};
 use lazy_static::lazy_static;
 use sedona_expr::function_set::FunctionSet;
 
@@ -64,7 +69,7 @@ pub fn build_sedona_function_set() -> Result<FunctionSet> {
 pub fn register_sedona_udfs(ctx: &SessionContext) -> Result<()> {
     let functions = build_sedona_function_set()?;
     for udf in functions.scalar_udfs() {
-        ctx.register_udf(ScalarUDF::from(udf.clone()));
+        ctx.register_udf(adapt_sedona_scalar_udf(ScalarUDF::from(udf.clone())));
     }
     for udaf in functions.aggregate_udfs() {
         ctx.register_udaf(AggregateUDF::from(udaf.clone()));
@@ -72,12 +77,106 @@ pub fn register_sedona_udfs(ctx: &SessionContext) -> Result<()> {
     Ok(())
 }
 
+/// Functions that interpret raw WKB/EWKB bytes.
+///
+/// Spark clients see geometry columns as WKB-encoded binary values, so it is
+/// valid Spark usage to pass a geometry column read from a spatial file
+/// format (whose storage is WKB binary annotated with the `geoarrow.wkb`
+/// extension type) to these functions. SedonaDB's kernels only match plain
+/// binary arguments, so [WkbBytesInputUdf] strips the extension metadata
+/// from binary arguments before dispatch, treating the input as its
+/// underlying WKB storage bytes.
+const WKB_BYTES_INPUT_FUNCTIONS: [&str; 4] = [
+    "st_geomfromwkb",
+    "st_geomfromwkbunchecked",
+    "st_geogfromwkb",
+    "st_geomfromewkb",
+];
+
+/// Wrap functions that accept raw WKB bytes so geometry-typed (extension
+/// annotated) binary arguments are dispatched as plain binary.
+fn adapt_sedona_scalar_udf(udf: ScalarUDF) -> ScalarUDF {
+    if WKB_BYTES_INPUT_FUNCTIONS.contains(&udf.name()) {
+        ScalarUDF::new_from_impl(WkbBytesInputUdf {
+            inner: Arc::new(udf),
+        })
+    } else {
+        udf
+    }
+}
+
+/// Remove `geoarrow.*` extension metadata from binary-storage fields so that
+/// binary kernels match geometry-typed arguments.
+fn strip_geo_extension(field: &FieldRef) -> FieldRef {
+    let is_binary_storage = matches!(
+        field.data_type(),
+        DataType::Binary | DataType::LargeBinary | DataType::BinaryView
+    );
+    let is_geoarrow = field
+        .metadata()
+        .get("ARROW:extension:name")
+        .is_some_and(|name| name.starts_with("geoarrow."));
+    if !is_binary_storage || !is_geoarrow {
+        return Arc::clone(field);
+    }
+    let mut metadata = field.metadata().clone();
+    metadata.remove("ARROW:extension:name");
+    metadata.remove("ARROW:extension:metadata");
+    Arc::new(field.as_ref().clone().with_metadata(metadata))
+}
+
+/// A [ScalarUDF] wrapper that treats geometry-typed binary arguments as
+/// their underlying WKB storage bytes. See [WKB_BYTES_INPUT_FUNCTIONS].
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct WkbBytesInputUdf {
+    inner: Arc<ScalarUDF>,
+}
+
+impl ScalarUDFImpl for WkbBytesInputUdf {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn aliases(&self) -> &[String] {
+        self.inner.aliases()
+    }
+
+    fn signature(&self) -> &Signature {
+        self.inner.signature()
+    }
+
+    fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
+        self.inner.inner().return_type(arg_types)
+    }
+
+    fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
+        self.inner.inner().coerce_types(arg_types)
+    }
+
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
+        let arg_fields: Vec<FieldRef> = args.arg_fields.iter().map(strip_geo_extension).collect();
+        self.inner.inner().return_field_from_args(ReturnFieldArgs {
+            arg_fields: &arg_fields,
+            scalar_arguments: args.scalar_arguments,
+        })
+    }
+
+    fn invoke_with_args(&self, mut args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        args.arg_fields = args.arg_fields.iter().map(strip_geo_extension).collect();
+        self.inner.inner().invoke_with_args(args)
+    }
+}
+
 lazy_static! {
     static ref SEDONA_SCALAR_REGISTRY: HashMap<String, Arc<ScalarUDF>> = {
         let fs = build_sedona_function_set().expect("failed to build sedona function set");
         let mut registry = HashMap::new();
         for udf in fs.scalar_udfs() {
-            let udf = Arc::new(ScalarUDF::from(udf.clone()));
+            let udf = Arc::new(adapt_sedona_scalar_udf(ScalarUDF::from(udf.clone())));
             // Register under the primary name and every alias (e.g.
             // st_geomfromtext -> st_geomfromwkt) so Spark-style names resolve.
             registry.insert(udf.name().to_string(), udf.clone());
