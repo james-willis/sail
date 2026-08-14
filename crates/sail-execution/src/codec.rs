@@ -1817,9 +1817,9 @@ impl PhysicalExtensionCodec for RemoteExecutionCodec {
             "randstr" => Ok(Arc::new(ScalarUDF::from(Randstr::new()))),
             "format_number" => Ok(Arc::new(ScalarUDF::from(FormatNumber::new()))),
             "soundex" => Ok(Arc::new(ScalarUDF::from(Soundex::new()))),
-            "st_asbinary" => Ok(Arc::new(ScalarUDF::from(StAsBinary::new()))),
-            "st_geomfromwkb" => Ok(Arc::new(ScalarUDF::from(StGeomFromWKB::new()))),
-            "st_geogfromwkb" => Ok(Arc::new(ScalarUDF::from(StGeogFromWKB::new()))),
+            // st_asbinary / st_geomfromwkb / st_geogfromwkb intentionally fall
+            // through to the sedona registry so plan-time and execution-time
+            // resolve the same implementations.
             "spark_array" | "spark_make_array" | "array" => {
                 Ok(Arc::new(ScalarUDF::from(SparkArray::new())))
             }
