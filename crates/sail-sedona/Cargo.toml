@@ -11,7 +11,11 @@ workspace = true
 [features]
 # `proj` uses sedona-proj with default-features off: libproj is dlopen'd at
 # runtime (e.g. from the pyproj wheel), so builds need no PROJ toolchain.
-default = ["geo", "geos", "tg", "proj"]
+# EXPERIMENT: drop the `geos` kernels so the wheel bundles NO libgeos.
+# Two copies of GEOS in one process (this wheel + the caller's shapely)
+# export identical symbols; the loader binds one implementation for both
+# and GEOS context pointers cross library boundaries -> SIGSEGV.
+default = ["geo", "tg", "proj"]
 geo = ["dep:sedona-geo"]
 geos = ["dep:sedona-geos"]
 tg = ["dep:sedona-tg"]
