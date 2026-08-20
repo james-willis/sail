@@ -27,7 +27,15 @@ fn configure_proj_shared(
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
 
-#[pymodule]
+/// The module is declared free-threading-compatible (`gil_used = false`).
+/// Without this declaration, importing `pysail` on a free-threaded (no-GIL)
+/// CPython build would re-enable the GIL for the whole process. The assertion
+/// is backed by an audit of the Python-bridge crates (`sail-python`,
+/// `sail-python-udf`, and the Python data source support in
+/// `sail-data-source`): all cached Python state uses `PyOnceLock` or
+/// lock-based data structures instead of relying on the GIL for mutual
+/// exclusion. See `FREE_THREADING.md` at the repository root.
+#[pymodule(gil_used = false)]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     spark::register_module(m)?;
     m.add_function(wrap_pyfunction!(cli::main, m)?)?;

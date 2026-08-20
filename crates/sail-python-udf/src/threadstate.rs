@@ -31,6 +31,18 @@ thread_local! {
 /// thread. This mirrors what a plain Python `threading.Thread` provides and
 /// what Python libraries assume. The cost is one retained thread state per
 /// pool thread.
+///
+/// Free-threading (no-GIL) note: this reasoning is unchanged on free-threaded
+/// CPython builds. The `PyGILState_*` API keeps the same thread-state
+/// lifecycle semantics there — `Ensure` binds (and creates if needed) the
+/// per-thread `PyThreadState` and increments its gilstate counter, and the
+/// outermost `Release` still destroys the auto thread state; free-threading
+/// removes only the mutual exclusion, not the lifecycle. Without the pin,
+/// worker threads on a free-threaded interpreter would still observe a fresh
+/// short-lived thread state per UDF call, and the same `threading.local` /
+/// TSS use-after-free class would apply. `PyEval_SaveThread` detaches the
+/// current thread state without blocking other attached threads, so the pin
+/// is equally cheap and correct with the GIL disabled.
 pub(crate) fn attach_persistent<F, R>(f: F) -> R
 where
     F: for<'py> FnOnce(Python<'py>) -> R,
