@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use datafusion::catalog::Session;
 use datafusion::datasource::listing::{ListingOptions, ListingTableConfig, ListingTableUrl};
 use datafusion::execution::cache::TableScopedPath;
@@ -95,27 +95,53 @@ pub async fn resolve_listing_schema<T: ListingFormat>(
             .await?;
         schemas.push(schema);
     }
-    let schema = Schema::try_merge(schemas)?;
+    let schema = try_merge_normalized(schemas)?;
 
-    // FIXME: DataFusion 43.0.0 suddenly doesn't support Utf8View
+    Ok(Arc::new(normalize_unsupported_fields(&schema)))
+}
+
+/// Merges the per-file inferred schemas, normalizing each one before the merge.
+///
+/// [`Schema::try_merge`] rejects fields whose data types differ, so the normalization has to
+/// happen before the merge as well as after it. A directory holding the same column as
+/// `timestamp[ms]` in one file and `timestamp[us]` in another would otherwise fail to merge,
+/// even though Spark represents both as a single timestamp type, and that failure would occur
+/// before [`normalize_unsupported_fields`] ever ran.
+fn try_merge_normalized(schemas: impl IntoIterator<Item = Schema>) -> Result<Schema> {
+    Ok(Schema::try_merge(
+        schemas
+            .into_iter()
+            .map(|schema| normalize_unsupported_fields(&schema)),
+    )?)
+}
+
+/// Rewrites inferred field types that have no Spark counterpart.
+///
+/// Spark's type system is narrower than Arrow's, and the Arrow-to-Spark conversion rejects what
+/// it cannot represent. Coercing the inferred schema here, rather than letting that conversion
+/// fail later, keeps files readable that DataFusion can already read: the listing table casts
+/// each file to this schema as it scans.
+fn normalize_unsupported_fields(schema: &Schema) -> Schema {
     let new_fields: Vec<Field> = schema
         .fields()
         .iter()
-        .map(|field| {
-            if matches!(field.data_type(), &DataType::Utf8View) {
-                let mut new_field = field.as_ref().clone();
-                new_field = new_field.with_data_type(DataType::Utf8);
-                new_field
-            } else {
-                field.as_ref().clone()
-            }
+        .map(|field| match field.data_type() {
+            // FIXME: DataFusion 43.0.0 suddenly doesn't support Utf8View
+            DataType::Utf8View => field.as_ref().clone().with_data_type(DataType::Utf8),
+            // Spark timestamps are microseconds, so second and millisecond timestamps are
+            // widened here; the conversion would otherwise reject them even though the
+            // widening is lossless. Nanoseconds are left alone so that they are still
+            // reported rather than silently truncated, which matches Spark: its Parquet
+            // reader accepts `MILLIS` and `MICROS` but not `NANOS` (SPARK-40819).
+            DataType::Timestamp(TimeUnit::Second | TimeUnit::Millisecond, tz) => field
+                .as_ref()
+                .clone()
+                .with_data_type(DataType::Timestamp(TimeUnit::Microsecond, tz.clone())),
+            _ => field.as_ref().clone(),
         })
         .collect();
 
-    Ok(Arc::new(Schema::new_with_metadata(
-        new_fields,
-        schema.metadata().clone(),
-    )))
+    Schema::new_with_metadata(new_fields, schema.metadata().clone())
 }
 
 fn resolve_listing_file_extension(
@@ -258,4 +284,105 @@ pub fn rewrite_listing_partitions(mut config: ListingTableConfig) -> Result<List
             }
         });
     Ok(config)
+}
+
+#[expect(clippy::unwrap_used)]
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_unsupported_fields() {
+        let utc = Some("UTC".into());
+        let metadata = HashMap::from([("k".to_string(), "v".to_string())]);
+        let schema = Schema::new(vec![
+            Field::new("view", DataType::Utf8View, true),
+            Field::new(
+                "ms",
+                DataType::Timestamp(TimeUnit::Millisecond, None),
+                false,
+            )
+            .with_metadata(metadata.clone()),
+            Field::new(
+                "ms_tz",
+                DataType::Timestamp(TimeUnit::Millisecond, utc.clone()),
+                true,
+            ),
+            Field::new("s", DataType::Timestamp(TimeUnit::Second, None), true),
+            Field::new("us", DataType::Timestamp(TimeUnit::Microsecond, None), true),
+            Field::new("ns", DataType::Timestamp(TimeUnit::Nanosecond, None), true),
+            Field::new("binary_view", DataType::BinaryView, true),
+            Field::new("other", DataType::Int64, true),
+        ])
+        .with_metadata(metadata.clone());
+        let schema = normalize_unsupported_fields(&schema);
+        let field = |name: &str| schema.field_with_name(name).unwrap().clone();
+
+        // Spark has no `Utf8View` type.
+        assert_eq!(field("view").data_type(), &DataType::Utf8);
+
+        // Second and millisecond timestamps widen to microseconds, keeping the time zone.
+        let us = DataType::Timestamp(TimeUnit::Microsecond, None);
+        assert_eq!(field("ms").data_type(), &us);
+        assert_eq!(field("s").data_type(), &us);
+        assert_eq!(
+            field("ms_tz").data_type(),
+            &DataType::Timestamp(TimeUnit::Microsecond, utc)
+        );
+
+        // Microsecond timestamps and unrelated types are left alone.
+        assert_eq!(field("us").data_type(), &us);
+        assert_eq!(field("other").data_type(), &DataType::Int64);
+
+        // `BinaryView` passes through deliberately: it is what keeps the fast
+        // `interleave_views` path, and it already converts to a Spark type.
+        assert_eq!(field("binary_view").data_type(), &DataType::BinaryView);
+
+        // Nanoseconds are still reported rather than silently truncated.
+        assert_eq!(
+            field("ns").data_type(),
+            &DataType::Timestamp(TimeUnit::Nanosecond, None)
+        );
+
+        // Rewriting a field preserves its nullability and metadata, and the schema keeps
+        // its own metadata.
+        assert!(!field("ms").is_nullable());
+        assert_eq!(field("ms").metadata(), &metadata);
+        assert_eq!(schema.metadata(), &metadata);
+    }
+
+    #[test]
+    fn test_try_merge_normalized_mixed_timestamp_units() {
+        let ts = |unit| {
+            Schema::new(vec![Field::new(
+                "ts",
+                DataType::Timestamp(unit, None),
+                true,
+            )])
+        };
+
+        // Files that disagree only on timestamp unit merge into a single microsecond field.
+        let merged =
+            try_merge_normalized([ts(TimeUnit::Millisecond), ts(TimeUnit::Microsecond)]).unwrap();
+        assert_eq!(
+            merged.field(0).data_type(),
+            &DataType::Timestamp(TimeUnit::Microsecond, None)
+        );
+
+        // Without normalizing first, that same merge fails - which is what this guards against.
+        assert!(Schema::try_merge([ts(TimeUnit::Millisecond), ts(TimeUnit::Microsecond)]).is_err());
+
+        // `Utf8View` and `Utf8` reconcile the same way.
+        let merged = try_merge_normalized([
+            Schema::new(vec![Field::new("s", DataType::Utf8View, true)]),
+            Schema::new(vec![Field::new("s", DataType::Utf8, true)]),
+        ])
+        .unwrap();
+        assert_eq!(merged.field(0).data_type(), &DataType::Utf8);
+
+        // Nanoseconds are deliberately left alone, so they still conflict.
+        assert!(
+            try_merge_normalized([ts(TimeUnit::Nanosecond), ts(TimeUnit::Microsecond)]).is_err()
+        );
+    }
 }
