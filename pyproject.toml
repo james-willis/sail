@@ -1,6 +1,15 @@
 [project]
 name = "pysail"
-version = "0.5.3"
+# Wherobots fork release version. PEP 440 post-release of upstream 0.5.3: the
+# Rust/Python source is still the 0.5.3 line, so the base version stays, and
+# `.postN` distinguishes each wheel we publish without claiming to be a new
+# upstream version. It has to be a valid Python version because it lands in the
+# wheel filename that wbc-images' `sail.sh` looks up by name, and it is
+# deliberately alphanumeric-plus-dots so it survives both that filename and the
+# `v${SAIL_VERSION}` release-tag URL unescaped. Bump the postN on every rebuild
+# rather than replacing an existing release asset, so the deployed image can
+# always be traced back to one wheel.
+version = "0.5.3.post1"
 description = "Sail Python library"
 authors = [
     { name = "LakeSail", email = "hello@lakesail.com" },
