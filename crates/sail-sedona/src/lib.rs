@@ -171,9 +171,16 @@ impl ScalarUDFImpl for WkbBytesInputUdf {
     }
 }
 
+/// Build the Sedona function set for the static registries, where there is no
+/// way to propagate an error.
+#[expect(clippy::expect_used)]
+fn build_sedona_function_set_or_panic() -> FunctionSet {
+    build_sedona_function_set().expect("failed to build sedona function set")
+}
+
 lazy_static! {
     static ref SEDONA_SCALAR_REGISTRY: HashMap<String, Arc<ScalarUDF>> = {
-        let fs = build_sedona_function_set().expect("failed to build sedona function set");
+        let fs = build_sedona_function_set_or_panic();
         let mut registry = HashMap::new();
         for udf in fs.scalar_udfs() {
             let udf = Arc::new(adapt_sedona_scalar_udf(ScalarUDF::from(udf.clone())));
@@ -187,7 +194,7 @@ lazy_static! {
         registry
     };
     static ref SEDONA_AGGREGATE_REGISTRY: HashMap<String, Arc<AggregateUDF>> = {
-        let fs = build_sedona_function_set().expect("failed to build sedona function set");
+        let fs = build_sedona_function_set_or_panic();
         let mut registry = HashMap::new();
         for udaf in fs.aggregate_udfs() {
             let udaf = Arc::new(AggregateUDF::from(udaf.clone()));
@@ -210,14 +217,10 @@ pub fn add_sedona_option_extension(
 ) -> datafusion::execution::context::SessionConfig {
     use sedona_common::option::SedonaOptions;
 
-    #[allow(unused_mut)]
+    #[cfg_attr(not(feature = "proj"), expect(unused_mut))]
     let mut config = config.with_option_extension(SedonaOptions::default());
     #[cfg(feature = "proj")]
-    if let Some(opts) = config
-        .options_mut()
-        .extensions
-        .get_mut::<SedonaOptions>()
-    {
+    if let Some(opts) = config.options_mut().extensions.get_mut::<SedonaOptions>() {
         opts.runtime = opts
             .runtime
             .with_crs_engine(std::sync::Arc::new(sedona_proj::transform::LazyProjEngine));

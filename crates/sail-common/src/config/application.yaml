@@ -24,15 +24,18 @@
 
 - key: runtime.memory_pool.type
   type: string
-  default: "unbounded"
+  default: "fair"
   description: |
     The type of memory pool to use for managing memory allocations during query execution.
     Valid values are `unbounded`, `greedy`, and `fair`.
     If the value is `unbounded`, there is no limit on memory usage.
     If the value is `greedy`, the memory pool will allocate memory up to a limit on a
     first come, first served basis.
-    If the value is `fair`, the memory pool will allocate memory up to a limit and ensure
-    that a single operator does not use too much memory.
+    If the value is `fair`, the memory pool will allocate memory up to a limit, ensure
+    that a single operator does not use too much memory, and reserve a fraction of the
+    limit for operators that cannot spill to disk.
+    This fork defaults to `fair` (auto-sized) so that memory-intensive operators such as
+    spatial joins spill to disk instead of exhausting the memory available to the process.
   experimental: true
 
 - key: runtime.memory_pool.greedy.max_size
@@ -44,9 +47,12 @@
 
 - key: runtime.memory_pool.fair.max_size
   type: number
-  default: "68719476736"
+  default: "0"
   description: |
     The maximum size in bytes if the `fair` memory pool is in use.
+    If the value is `0`, the pool is auto-sized to 75% of the available memory,
+    where the available memory is the cgroup memory limit if the process runs
+    under one, or the total system memory otherwise.
   experimental: true
 
 - key: runtime.temporary_files.paths

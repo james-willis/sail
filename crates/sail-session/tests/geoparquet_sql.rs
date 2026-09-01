@@ -3,6 +3,8 @@
 //! through plan resolution, optimization, physical planning, and execution,
 //! so that spatial function kernels match consistently.
 
+#![expect(clippy::panic)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -63,7 +65,10 @@ fn write_geoparquet_file(path: &std::path::Path, points: &[(f64, f64)]) -> Resul
     )?;
     let geo = r#"{"version":"1.0.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","geometry_types":["Point"]}}}"#;
     let props = WriterProperties::builder()
-        .set_key_value_metadata(Some(vec![KeyValue::new("geo".to_string(), geo.to_string())]))
+        .set_key_value_metadata(Some(vec![KeyValue::new(
+            "geo".to_string(),
+            geo.to_string(),
+        )]))
         .build();
     let file = std::fs::File::create(path).map_err(|e| DataFusionError::External(e.into()))?;
     let mut writer = ArrowWriter::try_new(file, schema, Some(props))?;
@@ -199,7 +204,8 @@ async fn test_geoparquet_sql_spatial_function_typing() -> Result<()> {
 
         // Spark clients treat geometry columns as WKB bytes, so functions
         // that parse raw WKB must also accept the geometry-typed column.
-        let sql = format!("SELECT ST_AsText(ST_GeomFromWKB(geometry)), id FROM {table} ORDER BY id");
+        let sql =
+            format!("SELECT ST_AsText(ST_GeomFromWKB(geometry)), id FROM {table} ORDER BY id");
         let batches = run_sql(&ctx, &sql)
             .await
             .unwrap_or_else(|e| panic!("ST_GeomFromWKB({name}) failed: {e}"));

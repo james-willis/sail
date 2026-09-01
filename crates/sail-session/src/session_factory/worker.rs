@@ -28,6 +28,11 @@ impl SessionFactory<()> for WorkerSessionFactory {
         // since we need built-in functions to be available for the codec
         // when decoding the execution plan.
         let config = SessionConfig::default().with_extension(Arc::new(DeltaTableCache::default()));
+        // Register SedonaOptions (with the PROJ CRS engine) and derive the
+        // spatial-join spill threshold from the memory pool limit, so decoded
+        // spatial join plans behave the same on workers as on the driver.
+        let mut config = sail_sedona::add_sedona_option_extension(config);
+        crate::session_factory::configure_spatial_join_spill_threshold(&mut config, &runtime);
         let state = SessionStateBuilder::new()
             .with_config(config)
             .with_runtime_env(runtime)

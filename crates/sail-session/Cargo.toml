@@ -42,6 +42,7 @@ readonly = { workspace = true }
 thiserror = { workspace = true }
 fastrace = { workspace = true }
 log = { workspace = true }
+parking_lot = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
@@ -53,6 +54,8 @@ chrono = { workspace = true }
 indexmap = { workspace = true }
 futures = { workspace = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

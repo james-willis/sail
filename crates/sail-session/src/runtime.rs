@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use datafusion::execution::cache::cache_manager::{
@@ -5,12 +6,12 @@ use datafusion::execution::cache::cache_manager::{
 };
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
 use datafusion::execution::memory_pool::{
-    FairSpillPool, GreedyMemoryPool, MemoryPool, UnboundedMemoryPool,
+    GreedyMemoryPool, MemoryPool, TrackConsumersPool, UnboundedMemoryPool,
 };
 use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 use datafusion::execution::DiskManager;
 use datafusion_common::Result;
-use log::debug;
+use log::{debug, info, warn};
 use sail_cache::file_listing_cache::MokaFileListingCache;
 use sail_cache::file_metadata_cache::MokaFileMetadataCache;
 use sail_cache::file_statistics_cache::MokaFileStatisticsCache;
@@ -19,6 +20,51 @@ use sail_common::config::{
 };
 use sail_common::runtime::RuntimeHandle;
 use sail_object_store::DynamicObjectStoreRegistry;
+
+use crate::memory_pool::{SedonaFairSpillPool, DEFAULT_UNSPILLABLE_RESERVE_RATIO};
+use crate::system_memory::available_memory;
+
+/// The fraction of available memory the auto-sized fair pool claims,
+/// mirroring SedonaDB's default of 75% of RAM.
+const AUTO_MEMORY_POOL_FRACTION: f64 = 0.75;
+
+/// The fair pool size used when nothing about the machine can be detected;
+/// matches the previous fixed default of the `fair` pool (64 GiB).
+const FALLBACK_MEMORY_POOL_SIZE: usize = 64 * 1024 * 1024 * 1024;
+
+/// The number of top memory consumers reported in "resources exhausted"
+/// errors from the fair pool.
+const TRACK_CONSUMERS: NonZeroUsize = NonZeroUsize::MIN.saturating_add(9);
+
+/// The pool size for the `fair` memory pool: the configured size if set, or
+/// 75% of the available memory (cgroup limit or total system RAM) when the
+/// configured size is `0` (auto).
+pub fn resolve_fair_pool_size(configured_max_size: usize) -> usize {
+    if configured_max_size != 0 {
+        return configured_max_size;
+    }
+    match available_memory() {
+        Some(available) => (available as f64 * AUTO_MEMORY_POOL_FRACTION) as usize,
+        None => {
+            warn!(
+                "cannot detect available memory; using the fallback fair memory pool size of {FALLBACK_MEMORY_POOL_SIZE} bytes"
+            );
+            FALLBACK_MEMORY_POOL_SIZE
+        }
+    }
+}
+
+/// The effective memory pool limit in bytes implied by the application
+/// configuration, or `None` for the unbounded pool.
+pub fn memory_pool_limit(config: &MemoryPoolConfig) -> Option<usize> {
+    match config {
+        MemoryPoolConfig::Unbounded => None,
+        MemoryPoolConfig::Greedy(GreedyMemoryPoolConfig { max_size }) => Some(*max_size),
+        MemoryPoolConfig::Fair(FairMemoryPoolConfig { max_size }) => {
+            Some(resolve_fair_pool_size(*max_size))
+        }
+    }
+}
 
 pub struct RuntimeEnvFactory {
     config: Arc<AppConfig>,
@@ -59,12 +105,32 @@ impl RuntimeEnvFactory {
 
     fn create_memory_pool(&self) -> Arc<dyn MemoryPool> {
         match self.config.runtime.memory_pool {
-            MemoryPoolConfig::Unbounded => Arc::new(UnboundedMemoryPool::default()),
+            MemoryPoolConfig::Unbounded => {
+                info!("using the unbounded memory pool");
+                Arc::new(UnboundedMemoryPool::default())
+            }
             MemoryPoolConfig::Greedy(GreedyMemoryPoolConfig { max_size }) => {
+                info!("using the greedy memory pool with a limit of {max_size} bytes");
                 Arc::new(GreedyMemoryPool::new(max_size))
             }
             MemoryPoolConfig::Fair(FairMemoryPoolConfig { max_size }) => {
-                Arc::new(FairSpillPool::new(max_size))
+                let pool_size = resolve_fair_pool_size(max_size);
+                info!(
+                    "using the fair memory pool with a limit of {pool_size} bytes{}",
+                    if max_size == 0 {
+                        " (auto-sized to 75% of available memory)"
+                    } else {
+                        ""
+                    }
+                );
+                // The Sedona fork of DataFusion's `FairSpillPool` reserves a
+                // fraction of the pool for unspillable consumers, so a
+                // spillable spatial join cannot starve the merge consumer of
+                // an auto-inserted `RepartitionExec` (DataFusion issue #17334).
+                Arc::new(TrackConsumersPool::new(
+                    SedonaFairSpillPool::new(pool_size, DEFAULT_UNSPILLABLE_RESERVE_RATIO),
+                    TRACK_CONSUMERS,
+                ))
             }
         }
     }
@@ -153,5 +219,56 @@ impl RuntimeEnvFactory {
                 Arc::new(MokaFileMetadataCache::new(ttl, size_limit))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_fair_pool_size_explicit() {
+        assert_eq!(resolve_fair_pool_size(1024), 1024);
+        assert_eq!(
+            resolve_fair_pool_size(12 * 1024 * 1024 * 1024),
+            12 * 1024 * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn test_resolve_fair_pool_size_auto() {
+        let size = resolve_fair_pool_size(0);
+        assert!(size > 0);
+        if let Some(available) = available_memory() {
+            assert_eq!(
+                size,
+                (available as f64 * AUTO_MEMORY_POOL_FRACTION) as usize
+            );
+            assert!(size < available as usize);
+        } else {
+            assert_eq!(size, FALLBACK_MEMORY_POOL_SIZE);
+        }
+    }
+
+    #[test]
+    fn test_memory_pool_limit_mapping() {
+        assert_eq!(memory_pool_limit(&MemoryPoolConfig::Unbounded), None);
+        assert_eq!(
+            memory_pool_limit(&MemoryPoolConfig::Greedy(GreedyMemoryPoolConfig {
+                max_size: 123,
+            })),
+            Some(123)
+        );
+        assert_eq!(
+            memory_pool_limit(&MemoryPoolConfig::Fair(FairMemoryPoolConfig {
+                max_size: 456,
+            })),
+            Some(456)
+        );
+        // An auto-sized fair pool still reports a finite limit.
+        let auto = memory_pool_limit(&MemoryPoolConfig::Fair(FairMemoryPoolConfig {
+            max_size: 0,
+        }));
+        assert!(auto.is_some_and(|size| size > 0));
     }
 }

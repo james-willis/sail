@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use datafusion::common::parquet_config::DFParquetWriterVersion;
 use datafusion::common::{internal_datafusion_err, Result};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 use datafusion::execution::{SessionState, SessionStateBuilder};
 use datafusion::functions_aggregate::first_last::first_value_udaf;
 use datafusion::prelude::{SessionConfig, SessionContext};
@@ -30,7 +30,9 @@ use crate::observable::SessionManagerHandle;
 use crate::optimizer::{default_analyzer_rules, default_optimizer_rules};
 use crate::planner::new_query_planner;
 use crate::runtime::RuntimeEnvFactory;
-use crate::session_factory::{SessionFactory, WorkerSessionFactory};
+use crate::session_factory::{
+    configure_spatial_join_spill_threshold, SessionFactory, WorkerSessionFactory,
+};
 use crate::session_manager::SessionManagerActor;
 
 pub struct ServerSessionInfo {
@@ -105,7 +107,11 @@ impl SessionFactory<ServerSessionInfo> for ServerSessionFactory {
 }
 
 impl ServerSessionFactory {
-    fn create_session_config(&mut self, info: &ServerSessionInfo) -> Result<SessionConfig> {
+    fn create_session_config(
+        &mut self,
+        info: &ServerSessionInfo,
+        runtime: &RuntimeEnv,
+    ) -> Result<SessionConfig> {
         let job_runner = self.create_job_runner()?;
         let mut config = SessionConfig::new()
             // We do not use the DataFusion catalog and schema since we manage catalogs ourselves.
@@ -124,16 +130,20 @@ impl ServerSessionFactory {
         self.apply_execution_parquet_config(&mut config);
         // Register SedonaOptions (with the PROJ CRS engine) so spatial-join
         // optimizer rules and ST_Transform can read their config.
-        let config = sail_sedona::add_sedona_option_extension(config);
+        let mut config = sail_sedona::add_sedona_option_extension(config);
+        configure_spatial_join_spill_threshold(&mut config, runtime);
         let config = self.mutator.mutate_config(config, info)?;
         Ok(config)
     }
 
     fn create_session_state(&mut self, info: &ServerSessionInfo) -> Result<SessionState> {
-        let config = self.create_session_config(info)?;
+        // The runtime environment is created before the session config because
+        // the spatial-join spill threshold in the config is derived from the
+        // memory pool limit of the runtime environment.
         let runtime = self
             .runtime_env
             .create(|builder| self.mutator.mutate_runtime_env(builder, info))?;
+        let config = self.create_session_config(info, &runtime)?;
         // We do not add default features to the session state,
         // since we manage table formats and functions ourselves.
         let builder = SessionStateBuilder::new()
