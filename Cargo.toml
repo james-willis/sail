@@ -180,23 +180,23 @@ hdfs-native-object-store = "0.15.0"
 # Using git deps because path deps across workspaces break manifest inheritance.
 # To use a local checkout for development, add overrides in [patch] below.
 ######
-sedona-common = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-schema = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-geometry = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-expr = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-raster = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-functions = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-geo = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-geo-generic-alg = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-geo-traits-ext = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-geos = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-tg = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-proj = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94", default-features = false }
-sedona-raster-functions = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-spatial-join = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-query-planner = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-geoparquet = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
-sedona-testing = { git = "https://github.com/james-willis/sedona-db", rev = "d18b1dee67d2a76b13252bbe24001e335deb5d94" }
+sedona-common = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-schema = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-geometry = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-expr = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-raster = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-functions = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-geo = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-geo-generic-alg = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-geo-traits-ext = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-geos = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-tg = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-proj = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c", default-features = false }
+sedona-raster-functions = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-spatial-join = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-query-planner = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-geoparquet = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
+sedona-testing = { git = "https://github.com/apache/sedona-db", rev = "495abf4bfd5cc9c89130e36db88137275a1a420c" }
 
 ######
 # This is the end of the manually managed dependencies.
