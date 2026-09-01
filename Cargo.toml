@@ -74,6 +74,11 @@ aws-smithy-async = "1.2.6"
 clap = { version = "4.5.60", features = ["derive"] }
 num_enum = "0.7.6"
 num-traits = "0.2.19"
+# `libc` and `parking_lot` are already in the dependency graph (transitively);
+# they are used directly for the system memory probe and the Sedona fair
+# memory pool in `sail-session`.
+libc = "0.2.183"
+parking_lot = "0.12.5"
 log = "0.4.29"
 env_logger = "0.11.9"
 fastrace = { version = "0.7.17", features = ["enable"] }
