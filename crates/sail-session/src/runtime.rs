@@ -24,9 +24,17 @@ use sail_object_store::DynamicObjectStoreRegistry;
 use crate::memory_pool::{SedonaFairSpillPool, DEFAULT_UNSPILLABLE_RESERVE_RATIO};
 use crate::system_memory::available_memory;
 
-/// The fraction of available memory the auto-sized fair pool claims,
-/// mirroring SedonaDB's default of 75% of RAM.
-const AUTO_MEMORY_POOL_FRACTION: f64 = 0.75;
+/// The fraction of available memory the auto-sized fair pool claims.
+///
+/// SedonaDB defaults to 75% of RAM, but the pool bounds only ACCOUNTED
+/// allocations: Arrow allocation slop, in-flight repartition batches, page
+/// cache charged to the cgroup (v2 counts it), and cohabitant processes
+/// (e.g. a Jupyter kernel) all live outside it. A 0.75 pool on a 12 GiB
+/// container was measured to leave too little headroom once the aggregate
+/// spillable budget stopped being diluted across idle consumers, so the
+/// auto default claims 60% instead. Explicitly configured sizes are always
+/// honored unchanged.
+const AUTO_MEMORY_POOL_FRACTION: f64 = 0.6;
 
 /// The fair pool size used when nothing about the machine can be detected;
 /// matches the previous fixed default of the `fair` pool (64 GiB).
@@ -37,7 +45,7 @@ const FALLBACK_MEMORY_POOL_SIZE: usize = 64 * 1024 * 1024 * 1024;
 const TRACK_CONSUMERS: NonZeroUsize = NonZeroUsize::MIN.saturating_add(9);
 
 /// The pool size for the `fair` memory pool: the configured size if set, or
-/// 75% of the available memory (cgroup limit or total system RAM) when the
+/// 60% of the available memory (cgroup limit or total system RAM) when the
 /// configured size is `0` (auto).
 pub fn resolve_fair_pool_size(configured_max_size: usize) -> usize {
     if configured_max_size != 0 {
@@ -118,7 +126,7 @@ impl RuntimeEnvFactory {
                 info!(
                     "using the fair memory pool with a limit of {pool_size} bytes{}",
                     if max_size == 0 {
-                        " (auto-sized to 75% of available memory)"
+                        " (auto-sized to 60% of available memory)"
                     } else {
                         ""
                     }
