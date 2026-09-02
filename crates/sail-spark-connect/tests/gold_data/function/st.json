@@ -19,7 +19,7 @@
         }
       },
       "output": {
-        "success": "ok"
+        "failure": "error in DataFusion: Execution error: hex got an unexpected argument type: BinaryView"
       }
     },
     {
@@ -41,7 +41,7 @@
         }
       },
       "output": {
-        "success": "ok"
+        "failure": "error in DataFusion: Execution error: hex got an unexpected argument type: BinaryView"
       }
     },
     {
@@ -63,7 +63,7 @@
         }
       },
       "output": {
-        "failure": "not supported: unknown function: st_srid"
+        "success": "ok"
       }
     },
     {
@@ -85,7 +85,7 @@
         }
       },
       "output": {
-        "failure": "not supported: unknown function: st_srid"
+        "success": "ok"
       }
     },
     {
@@ -107,7 +107,7 @@
         }
       },
       "output": {
-        "failure": "not supported: unknown function: st_srid"
+        "success": "ok"
       }
     },
     {
@@ -129,7 +129,7 @@
         }
       },
       "output": {
-        "failure": "not supported: unknown function: st_setsrid"
+        "success": "ok"
       }
     },
     {
@@ -151,7 +151,7 @@
         }
       },
       "output": {
-        "failure": "not supported: unknown function: st_setsrid"
+        "success": "ok"
       }
     }
   ]
