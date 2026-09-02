@@ -21,7 +21,12 @@
 //! `d18b1dee67d2a76b13252bbe24001e335deb5d94` (Apache-2.0), the same revision
 //! this fork pins the `sedona-*` crates to. Copying the module (instead of
 //! depending on the top-level `sedona` crate) avoids pulling in the whole
-//! SedonaDB context stack just for the pool. The implementation is unchanged.
+//! SedonaDB context stack just for the pool.
+//!
+//! One deliberate divergence from the copied implementation: spillable
+//! consumers are limited by the aggregate spillable budget instead of a static
+//! `1/num_spill` per-consumer share. See the comment in
+//! [`SedonaFairSpillPool::try_grow`] for the rationale and measurements.
 
 use datafusion::execution::memory_pool::{
     MemoryConsumer, MemoryLimit, MemoryPool, MemoryReservation,
@@ -50,6 +55,10 @@ pub const DEFAULT_UNSPILLABLE_RESERVE_RATIO: f64 = 0.2;
 /// By reserving a configurable fraction of the total memory pool specifically for unspillable
 /// allocations (defined by `unspillable_reserve_ratio`), this pool ensures that critical
 /// non-spillable operations can proceed even under heavy memory pressure from spillable operators.
+///
+/// Additionally, unlike both DataFusion's FairSpillPool and the copied SedonaDB implementation,
+/// spillable consumers share the spillable budget in aggregate instead of being individually
+/// capped at `1/num_spill` of it; see [`SedonaFairSpillPool::try_grow`] for the rationale.
 #[derive(Debug)]
 pub struct SedonaFairSpillPool {
     /// The total memory limit
@@ -133,16 +142,30 @@ impl MemoryPool for SedonaFairSpillPool {
 
         match reservation.consumer().can_spill() {
             true => {
-                // No spiller may use more than their fraction of the memory available
-                let available = spill_available
-                    .checked_div(state.num_spill)
-                    .unwrap_or(spill_available);
-
-                if reservation.size() + additional > available {
+                // Divergence from the copied SedonaDB implementation (and DataFusion's
+                // FairSpillPool, which both cap each spiller at
+                // `spill_available / num_spill`): let any spillable consumer grow as long
+                // as the TOTAL spillable usage stays within the spillable budget.
+                //
+                // The static 1/N division dilutes the per-consumer cap with every
+                // *registered* spillable consumer, including idle ones. DataFusion 52
+                // registers spillable consumers for every RepartitionExec channel and
+                // aggregate stream, so a spatial join build in a typical plan shares its
+                // budget with ~3x as many mostly-idle consumers and is pushed to spill
+                // while the pool is nearly empty (measured: SpatialBench q10 sf=1 under a
+                // 9 GiB pool spilled ~3 GB with peak usage under 2 GiB, because 32
+                // registered spillable consumers capped each build partition at 241 MB).
+                //
+                // Enforcing only the aggregate budget keeps the pool hard-bounded (the
+                // whole point of the fair pool) and keeps the unspillable reserve intact,
+                // while consumers that hit the wall under real pressure still spill.
+                let available = spill_available.saturating_sub(state.spillable);
+                if additional > available {
                     return Err(insufficient_capacity_err(
                         reservation,
                         additional,
                         available,
+                        state.num_spill,
                         effective_unspillable,
                         spill_available,
                     ));
@@ -159,6 +182,7 @@ impl MemoryPool for SedonaFairSpillPool {
                         reservation,
                         additional,
                         available,
+                        state.num_spill,
                         effective_unspillable,
                         spill_available,
                     ));
@@ -183,18 +207,20 @@ fn insufficient_capacity_err(
     reservation: &MemoryReservation,
     additional: usize,
     available: usize,
+    num_spill: usize,
     unspillable: usize,
     spill_available: usize,
 ) -> DataFusionError {
     resources_datafusion_err!(
         "Failed to allocate additional {} bytes for {} with {} bytes already allocated - maximum available is {} bytes. \
-        Current unspillable memory usage: {} bytes, spillable memory available: {} bytes",
+        Current unspillable memory usage: {} bytes, spillable memory available: {} bytes, spillable consumers: {}",
         additional,
         reservation.consumer().name(),
         reservation.size(),
         available,
         unspillable,
-        spill_available
+        spill_available,
+        num_spill
     )
 }
 
@@ -261,8 +287,11 @@ mod tests {
     }
 
     #[test]
-    fn test_fairness_among_spillers() {
-        // Pool size 100, 0% reserved.
+    fn test_spillers_share_aggregate_budget() {
+        // Pool size 100, 0% reserved. Unlike the copied SedonaDB implementation
+        // (a strict N-way split per registered spiller), the spillable budget is
+        // shared: a consumer may use everything its peers are not using, and the
+        // aggregate stays hard-bounded.
         let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(100, 0.0));
 
         let c1 = MemoryConsumer::new("c1").with_can_spill(true);
@@ -271,22 +300,37 @@ mod tests {
         let c2 = MemoryConsumer::new("c2").with_can_spill(true);
         let mut r2 = c2.register(&pool);
 
-        // With 2 spillers, each gets 50.
-        r1.try_grow(50).unwrap();
+        // A single active spiller can use the whole spillable budget even though
+        // another (idle) spiller is registered.
+        r1.try_grow(100).unwrap();
         assert!(r1.try_grow(1).is_err());
 
-        r2.try_grow(50).unwrap();
+        // The aggregate budget is exhausted, so the second spiller must spill.
         assert!(r2.try_grow(1).is_err());
 
-        // If one shrinks, other can't grow immediately if we strictly enforce N-way split?
-        // DataFusion FairSpillPool:
-        // let available = spill_available.checked_div(state.num_spill).unwrap_or(spill_available);
-        // Yes, it strictly enforces split.
-
-        r1.shrink(50);
-        // r1 = 0, r2 = 50.
-        // r2 tries to grow. Available per spiller = 50. r2 has 50.
-        // So r2 cannot grow even if r1 is empty. This is how FairSpillPool works.
+        // Once the first spiller releases memory, the second can use it.
+        r1.shrink(60);
+        r2.try_grow(60).unwrap();
+        assert_eq!(pool.reserved(), 100);
         assert!(r2.try_grow(1).is_err());
+    }
+
+    #[test]
+    fn test_spillers_cannot_eat_into_unspillable_reserve() {
+        // Pool size 100, 20% reserved for unspillable consumers: the spillable
+        // budget is 80 in aggregate, no matter how many spillers are registered.
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(100, 0.2));
+
+        let c1 = MemoryConsumer::new("c1").with_can_spill(true);
+        let mut r1 = c1.register(&pool);
+
+        let c2 = MemoryConsumer::new("c2").with_can_spill(true);
+        let mut r2 = c2.register(&pool);
+
+        r1.try_grow(50).unwrap();
+        r2.try_grow(30).unwrap();
+        assert!(r1.try_grow(1).is_err());
+        assert!(r2.try_grow(1).is_err());
+        assert_eq!(pool.reserved(), 80);
     }
 }
