@@ -50,7 +50,7 @@
   default: "0"
   description: |
     The maximum size in bytes if the `fair` memory pool is in use.
-    If the value is `0`, the pool is auto-sized to 75% of the available memory,
+    If the value is `0`, the pool is auto-sized to 60% of the available memory,
     where the available memory is the cgroup memory limit if the process runs
     under one, or the total system memory otherwise.
   experimental: true
