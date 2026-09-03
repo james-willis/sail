@@ -28,6 +28,8 @@
 //! `1/num_spill` per-consumer share. See the comment in
 //! [`SedonaFairSpillPool::try_grow`] for the rationale and measurements.
 
+use std::collections::HashMap;
+
 use datafusion::execution::memory_pool::{
     MemoryConsumer, MemoryLimit, MemoryPool, MemoryReservation,
 };
@@ -36,6 +38,12 @@ use parking_lot::Mutex;
 use sail_common::config::FairPoolSharingStrategy;
 
 pub const DEFAULT_UNSPILLABLE_RESERVE_RATIO: f64 = 0.2;
+
+/// A spillable consumer counts as "active" for the `Active` sharing strategy
+/// once it holds at least this much memory. The epsilon keeps consumers with
+/// trivial bookkeeping allocations (e.g. repartition channels buffering a few
+/// batches) from diluting the caps of the consumers doing real work.
+const ACTIVE_SPILLER_MIN_USAGE: usize = 1024 * 1024;
 
 /// A [`MemoryPool`] implementation similar to DataFusion's [`datafusion::execution::memory_pool::FairSpillPool`],
 /// but with the following changes:
@@ -58,12 +66,14 @@ pub const DEFAULT_UNSPILLABLE_RESERVE_RATIO: f64 = 0.2;
 /// non-spillable operations can proceed even under heavy memory pressure from spillable operators.
 ///
 /// How the spillable budget is divided among spillable consumers is controlled by
-/// [`FairPoolSharingStrategy`]. The default (`Diluted`) caps every spillable consumer at
-/// `1/num_spill` of the budget, exactly like SedonaDB's fair pool and DataFusion's
-/// FairSpillPool: large consumers spill early and the process memory footprint stays small,
-/// which is what keeps memory-limited containers alive. The opt-in `Honest` strategy shares
-/// the budget in aggregate instead, so nothing spills while the pool has room; see
-/// [`SedonaFairSpillPool::try_grow`] for the trade-offs.
+/// [`FairPoolSharingStrategy`]. The default (`Active`) caps every spillable consumer at
+/// `1/N` of the budget where `N` counts only consumers currently holding a non-trivial
+/// amount of memory: every active consumer stays individually bounded (so the process
+/// footprint stays small, which is what keeps memory-limited containers alive), but idle
+/// registered consumers no longer dilute the caps, so far less spills than under the
+/// SedonaDB-exact `Diluted` strategy. `Diluted` (1/registered, SedonaDB/FairSpillPool
+/// parity) and `Honest` (aggregate budget, nothing spills while the pool has room) remain
+/// as opt-ins; see [`SedonaFairSpillPool::try_grow`] for the trade-offs.
 #[derive(Debug)]
 pub struct SedonaFairSpillPool {
     /// The total memory limit
@@ -86,6 +96,46 @@ struct FairSpillPoolState {
 
     /// The total amount of memory reserved by consumers that cannot spill
     unspillable: usize,
+
+    /// Memory held per spillable consumer (keyed by [`MemoryConsumer::id`]),
+    /// maintained so the `Active` sharing strategy can divide the budget over
+    /// consumers that are actually using memory instead of everything
+    /// registered. Entries are removed when usage returns to zero.
+    spillable_usage: HashMap<usize, usize>,
+
+    /// The number of spillable consumers currently holding at least
+    /// [`ACTIVE_SPILLER_MIN_USAGE`] bytes.
+    active_spillers: usize,
+}
+
+impl FairSpillPoolState {
+    /// Record `additional` bytes for a spillable consumer, keeping the
+    /// active-consumer count in sync with threshold crossings.
+    fn add_spillable_usage(&mut self, consumer_id: usize, additional: usize) {
+        self.spillable += additional;
+        let usage = self.spillable_usage.entry(consumer_id).or_insert(0);
+        let before = *usage;
+        *usage += additional;
+        if before < ACTIVE_SPILLER_MIN_USAGE && *usage >= ACTIVE_SPILLER_MIN_USAGE {
+            self.active_spillers += 1;
+        }
+    }
+
+    /// Release `shrink` bytes for a spillable consumer, keeping the
+    /// active-consumer count in sync with threshold crossings.
+    fn sub_spillable_usage(&mut self, consumer_id: usize, shrink: usize) {
+        self.spillable -= shrink;
+        if let Some(usage) = self.spillable_usage.get_mut(&consumer_id) {
+            let before = *usage;
+            *usage = usage.saturating_sub(shrink);
+            if before >= ACTIVE_SPILLER_MIN_USAGE && *usage < ACTIVE_SPILLER_MIN_USAGE {
+                self.active_spillers -= 1;
+            }
+            if *usage == 0 {
+                self.spillable_usage.remove(&consumer_id);
+            }
+        }
+    }
 }
 
 impl SedonaFairSpillPool {
@@ -112,6 +162,8 @@ impl SedonaFairSpillPool {
                 num_spill: 0,
                 spillable: 0,
                 unspillable: 0,
+                spillable_usage: HashMap::new(),
+                active_spillers: 0,
             }),
         }
     }
@@ -129,13 +181,21 @@ impl MemoryPool for SedonaFairSpillPool {
         if consumer.can_spill() {
             let mut state = self.state.lock();
             state.num_spill = state.num_spill.checked_sub(1).unwrap();
+            // Reservations shrink to zero before their consumer unregisters,
+            // so the entry is normally gone already; clean up defensively so
+            // a leaked reservation cannot pin the active-consumer count.
+            if let Some(usage) = state.spillable_usage.remove(&consumer.id()) {
+                if usage >= ACTIVE_SPILLER_MIN_USAGE {
+                    state.active_spillers -= 1;
+                }
+            }
         }
     }
 
     fn grow(&self, reservation: &MemoryReservation, additional: usize) {
         let mut state = self.state.lock();
         match reservation.consumer().can_spill() {
-            true => state.spillable += additional,
+            true => state.add_spillable_usage(reservation.consumer().id(), additional),
             false => state.unspillable += additional,
         }
     }
@@ -143,7 +203,7 @@ impl MemoryPool for SedonaFairSpillPool {
     fn shrink(&self, reservation: &MemoryReservation, shrink: usize) {
         let mut state = self.state.lock();
         match reservation.consumer().can_spill() {
-            true => state.spillable -= shrink,
+            true => state.sub_spillable_usage(reservation.consumer().id(), shrink),
             false => state.unspillable -= shrink,
         }
     }
@@ -184,7 +244,34 @@ impl MemoryPool for SedonaFairSpillPool {
                 // real memory headroom - but a single query's footprint can approach
                 // the full pool size, which on tightly-limited containers risks the
                 // cgroup limit even though the pool itself is never exceeded.
+                let consumer_id = reservation.consumer().id();
                 let available = match self.sharing_strategy {
+                    FairPoolSharingStrategy::Active => {
+                        // Divide the budget over consumers that are actually
+                        // holding memory (plus this one, if it is not yet
+                        // active), instead of everything registered. Idle
+                        // repartition/exchange channels no longer shrink the
+                        // caps of the consumers doing real work, so far less
+                        // spills than under `Diluted`; every active consumer
+                        // is still individually bounded, so the process
+                        // footprint stays small. The caps shrink dynamically
+                        // as more consumers activate, so the aggregate bound
+                        // below is what keeps the total inside the budget
+                        // during the transition.
+                        let usage = state
+                            .spillable_usage
+                            .get(&consumer_id)
+                            .copied()
+                            .unwrap_or(0);
+                        let n_active =
+                            state.active_spillers + usize::from(usage < ACTIVE_SPILLER_MIN_USAGE);
+                        let per_consumer = spill_available
+                            .checked_div(n_active)
+                            .unwrap_or(spill_available);
+                        per_consumer
+                            .saturating_sub(usage)
+                            .min(spill_available.saturating_sub(state.spillable))
+                    }
                     FairPoolSharingStrategy::Diluted => {
                         let per_consumer = spill_available
                             .checked_div(state.num_spill)
@@ -205,7 +292,7 @@ impl MemoryPool for SedonaFairSpillPool {
                         spill_available,
                     ));
                 }
-                state.spillable += additional;
+                state.add_spillable_usage(consumer_id, additional);
             }
             false => {
                 let available = self
@@ -379,10 +466,14 @@ mod tests {
     }
 
     #[test]
-    fn test_diluted_default_matches_sedonadb_split() {
-        // The DEFAULT strategy is the SedonaDB / DataFusion FairSpillPool
-        // behavior: every spiller is capped at spillable_budget / num_spill.
-        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(100, 0.0));
+    fn test_diluted_matches_sedonadb_split() {
+        // Opt-in `diluted`: the SedonaDB / DataFusion FairSpillPool
+        // behavior - every spiller is capped at spillable_budget / num_spill.
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new_with_strategy(
+            100,
+            0.0,
+            FairPoolSharingStrategy::Diluted,
+        ));
 
         let c1 = MemoryConsumer::new("c1").with_can_spill(true);
         let mut r1 = c1.register(&pool);
@@ -409,7 +500,11 @@ mod tests {
         // budget even though the pool is otherwise empty. This early spill is
         // the accepted cost of keeping the process footprint small on
         // memory-limited containers (and is exact SedonaDB behavior).
-        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(320, 0.0));
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new_with_strategy(
+            320,
+            0.0,
+            FairPoolSharingStrategy::Diluted,
+        ));
 
         let consumers: Vec<_> = (0..4)
             .map(|i| MemoryConsumer::new(format!("c{i}")).with_can_spill(true))
@@ -419,5 +514,107 @@ mod tests {
         reservations[0].try_grow(80).unwrap();
         assert!(reservations[0].try_grow(1).is_err());
         assert_eq!(pool.reserved(), 80);
+    }
+
+    const MIB: usize = 1024 * 1024;
+
+    #[test]
+    fn test_active_idle_consumers_do_not_dilute() {
+        // The DEFAULT strategy divides the budget over ACTIVE consumers
+        // only: with four spillers registered but none holding memory, the
+        // first consumer to activate may use the whole spillable budget
+        // (cold start), unlike `diluted` where it would be capped at 1/4.
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(8 * MIB, 0.0));
+
+        let consumers: Vec<_> = (0..4)
+            .map(|i| MemoryConsumer::new(format!("c{i}")).with_can_spill(true))
+            .collect();
+        let mut reservations: Vec<_> = consumers.into_iter().map(|c| c.register(&pool)).collect();
+
+        reservations[0].try_grow(8 * MIB).unwrap();
+        assert!(reservations[0].try_grow(1).is_err());
+        assert_eq!(pool.reserved(), 8 * MIB);
+    }
+
+    #[test]
+    fn test_active_caps_shrink_as_consumers_activate() {
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(8 * MIB, 0.0));
+
+        let c1 = MemoryConsumer::new("c1").with_can_spill(true);
+        let mut r1 = c1.register(&pool);
+        let c2 = MemoryConsumer::new("c2").with_can_spill(true);
+        let mut r2 = c2.register(&pool);
+
+        // One active consumer: capped at the full budget.
+        r1.try_grow(3 * MIB).unwrap();
+
+        // A second consumer activates: both are now capped at 1/2.
+        r2.try_grow(4 * MIB).unwrap();
+
+        // c1 holds 3 MiB of its 4 MiB cap and only 1 MiB of the aggregate
+        // budget remains.
+        assert!(r1.try_grow(2 * MIB).is_err());
+        r1.try_grow(MIB).unwrap();
+        assert_eq!(pool.reserved(), 8 * MIB);
+    }
+
+    #[test]
+    fn test_active_aggregate_bound_prevents_overshoot() {
+        // Dynamic caps must not let the total exceed the budget: a consumer
+        // that grabbed everything during cold start forces later activators
+        // to spill even though their own 1/N cap is not reached.
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(8 * MIB, 0.0));
+
+        let c1 = MemoryConsumer::new("c1").with_can_spill(true);
+        let mut r1 = c1.register(&pool);
+        let c2 = MemoryConsumer::new("c2").with_can_spill(true);
+        let mut r2 = c2.register(&pool);
+
+        r1.try_grow(8 * MIB).unwrap();
+        assert!(r2.try_grow(1).is_err());
+
+        // Once the hog releases, the second consumer can proceed.
+        r1.shrink(8 * MIB);
+        r2.try_grow(8 * MIB).unwrap();
+    }
+
+    #[test]
+    fn test_active_tiny_consumers_do_not_count() {
+        // Consumers below the activity threshold (1 MiB) do not dilute the
+        // caps of consumers doing real work.
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(8 * MIB, 0.0));
+
+        let tiny = MemoryConsumer::new("tiny").with_can_spill(true);
+        let mut r_tiny = tiny.register(&pool);
+        let big = MemoryConsumer::new("big").with_can_spill(true);
+        let mut r_big = big.register(&pool);
+
+        r_tiny.try_grow(MIB / 2).unwrap();
+
+        // The big consumer is still capped at the full budget (n_active = 1:
+        // itself), bounded only by what the tiny consumer already holds.
+        r_big.try_grow(7 * MIB + MIB / 2).unwrap();
+        assert!(r_big.try_grow(1).is_err());
+        assert_eq!(pool.reserved(), 8 * MIB);
+    }
+
+    #[test]
+    fn test_active_deactivation_restores_caps() {
+        // Unlike `diluted`'s strict registered-count split, caps grow back
+        // as consumers release their memory.
+        let pool: Arc<dyn MemoryPool> = Arc::new(SedonaFairSpillPool::new(8 * MIB, 0.0));
+
+        let c1 = MemoryConsumer::new("c1").with_can_spill(true);
+        let mut r1 = c1.register(&pool);
+        let c2 = MemoryConsumer::new("c2").with_can_spill(true);
+        let mut r2 = c2.register(&pool);
+
+        r1.try_grow(4 * MIB).unwrap();
+        r2.try_grow(4 * MIB).unwrap();
+        assert!(r2.try_grow(1).is_err());
+
+        r1.shrink(4 * MIB);
+        r2.try_grow(4 * MIB).unwrap();
+        assert_eq!(pool.reserved(), 8 * MIB);
     }
 }

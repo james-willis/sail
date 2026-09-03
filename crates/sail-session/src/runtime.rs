@@ -30,9 +30,9 @@ use crate::system_memory::available_memory;
 /// The pool bounds only ACCOUNTED allocations, so this was temporarily
 /// lowered to 60% while the fair pool's `honest` sharing strategy was the
 /// default (a single query's anon footprint could approach the full pool
-/// size). With the default back to `diluted` sharing - which pushes large
-/// consumers to spill early and keeps the anon footprint far below the pool
-/// size, exactly like SedonaDB - the generous sizing is safe again.
+/// size). With the default back to a diluting strategy (`active`) - which
+/// keeps every consumer individually bounded and the anon footprint far
+/// below the pool size, like SedonaDB - the generous sizing is safe again.
 /// Explicitly configured sizes are always honored unchanged.
 const AUTO_MEMORY_POOL_FRACTION: f64 = 0.75;
 

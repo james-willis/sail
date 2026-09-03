@@ -119,14 +119,21 @@ pub struct FairMemoryPoolConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FairPoolSharingStrategy {
+    /// Cap every spillable consumer at `spillable budget / ACTIVE spillable
+    /// consumers`, where active means currently holding a non-trivial
+    /// amount of memory. Idle registered consumers (e.g. repartition
+    /// channels at zero bytes) do not dilute the cap, so real workers get
+    /// usefully large caps and spill far less than under `diluted`, while
+    /// every active consumer remains individually bounded - the process
+    /// memory footprint stays small, like `diluted`. The default.
+    #[default]
+    Active,
     /// Cap every spillable consumer at `spillable budget / registered
     /// spillable consumers`, exactly like SedonaDB's fair pool (and
     /// DataFusion's `FairSpillPool`). Idle registered consumers dilute the
     /// cap, which pushes large consumers to spill early - keeping the
     /// process memory footprint small at the cost of spilling while the
-    /// pool still has room. The default, for SedonaDB parity on
-    /// memory-limited runtimes.
-    #[default]
+    /// pool still has room. Exact SedonaDB behavior parity.
     Diluted,
     /// Let any spillable consumer grow as long as TOTAL spillable usage
     /// stays within the spillable budget. Nothing spills while the pool has
