@@ -2457,7 +2457,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "52.5.0"
-source = "git+https://github.com/james-willis/datafusion?rev=3a3f3be2d44695a6e69303a5b79e37feb9aca8af#3a3f3be2d44695a6e69303a5b79e37feb9aca8af"
+source = "git+https://github.com/james-willis/datafusion?rev=c47c59a2ddf2f1b9f9b16ff918fa3d6e828f6723#c47c59a2ddf2f1b9f9b16ff918fa3d6e828f6723"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -3867,7 +3867,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5778,7 +5778,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.37",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5815,7 +5815,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7319,7 +7319,7 @@ dependencies = [
 [[package]]
 name = "sedona-common"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "datafusion-common",
  "regex",
@@ -7329,7 +7329,7 @@ dependencies = [
 [[package]]
 name = "sedona-expr"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7349,7 +7349,7 @@ dependencies = [
 [[package]]
 name = "sedona-functions"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7371,7 +7371,7 @@ dependencies = [
 [[package]]
 name = "sedona-geo"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7394,7 +7394,7 @@ dependencies = [
 [[package]]
 name = "sedona-geo-generic-alg"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "float_next_after 2.0.0",
  "geo-traits",
@@ -7410,7 +7410,7 @@ dependencies = [
 [[package]]
 name = "sedona-geo-traits-ext"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "byteorder",
  "geo-traits",
@@ -7422,7 +7422,7 @@ dependencies = [
 [[package]]
 name = "sedona-geometry"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "geo-traits",
  "lru",
@@ -7435,7 +7435,7 @@ dependencies = [
 [[package]]
 name = "sedona-geoparquet"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7470,7 +7470,7 @@ dependencies = [
 [[package]]
 name = "sedona-geos"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7491,7 +7491,7 @@ dependencies = [
 [[package]]
 name = "sedona-proj"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "geo-traits",
  "libloading 0.9.0",
@@ -7503,7 +7503,7 @@ dependencies = [
 [[package]]
 name = "sedona-query-planner"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-schema",
  "async-trait",
@@ -7522,7 +7522,7 @@ dependencies = [
 [[package]]
 name = "sedona-raster"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7537,7 +7537,7 @@ dependencies = [
 [[package]]
 name = "sedona-raster-functions"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -7559,7 +7559,7 @@ dependencies = [
 [[package]]
 name = "sedona-schema"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -7573,7 +7573,7 @@ dependencies = [
 [[package]]
 name = "sedona-spatial-join"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -7617,7 +7617,7 @@ dependencies = [
 [[package]]
 name = "sedona-tg"
 version = "0.5.0"
-source = "git+https://github.com/james-willis/sedona-db?rev=d01dc093d60df40b3e5835d1ef59011286f2e6dc#d01dc093d60df40b3e5835d1ef59011286f2e6dc"
+source = "git+https://github.com/james-willis/sedona-db?rev=8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9#8c4b22fdefcf320cba32732b2371b4dbf6c9a0e9"
 dependencies = [
  "arrow-array",
  "arrow-schema",
