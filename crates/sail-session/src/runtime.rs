@@ -24,17 +24,17 @@ use sail_object_store::DynamicObjectStoreRegistry;
 use crate::memory_pool::{SedonaFairSpillPool, DEFAULT_UNSPILLABLE_RESERVE_RATIO};
 use crate::system_memory::available_memory;
 
-/// The fraction of available memory the auto-sized fair pool claims.
+/// The fraction of available memory the auto-sized fair pool claims,
+/// matching SedonaDB's default of 75% of RAM.
 ///
-/// SedonaDB defaults to 75% of RAM, but the pool bounds only ACCOUNTED
-/// allocations: Arrow allocation slop, in-flight repartition batches, page
-/// cache charged to the cgroup (v2 counts it), and cohabitant processes
-/// (e.g. a Jupyter kernel) all live outside it. A 0.75 pool on a 12 GiB
-/// container was measured to leave too little headroom once the aggregate
-/// spillable budget stopped being diluted across idle consumers, so the
-/// auto default claims 60% instead. Explicitly configured sizes are always
-/// honored unchanged.
-const AUTO_MEMORY_POOL_FRACTION: f64 = 0.6;
+/// The pool bounds only ACCOUNTED allocations, so this was temporarily
+/// lowered to 60% while the fair pool's `honest` sharing strategy was the
+/// default (a single query's anon footprint could approach the full pool
+/// size). With the default back to `diluted` sharing - which pushes large
+/// consumers to spill early and keeps the anon footprint far below the pool
+/// size, exactly like SedonaDB - the generous sizing is safe again.
+/// Explicitly configured sizes are always honored unchanged.
+const AUTO_MEMORY_POOL_FRACTION: f64 = 0.75;
 
 /// The fair pool size used when nothing about the machine can be detected;
 /// matches the previous fixed default of the `fair` pool (64 GiB).
@@ -45,7 +45,7 @@ const FALLBACK_MEMORY_POOL_SIZE: usize = 64 * 1024 * 1024 * 1024;
 const TRACK_CONSUMERS: NonZeroUsize = NonZeroUsize::MIN.saturating_add(9);
 
 /// The pool size for the `fair` memory pool: the configured size if set, or
-/// 60% of the available memory (cgroup limit or total system RAM) when the
+/// 75% of the available memory (cgroup limit or total system RAM) when the
 /// configured size is `0` (auto).
 pub fn resolve_fair_pool_size(configured_max_size: usize) -> usize {
     if configured_max_size != 0 {
@@ -68,7 +68,7 @@ pub fn memory_pool_limit(config: &MemoryPoolConfig) -> Option<usize> {
     match config {
         MemoryPoolConfig::Unbounded => None,
         MemoryPoolConfig::Greedy(GreedyMemoryPoolConfig { max_size }) => Some(*max_size),
-        MemoryPoolConfig::Fair(FairMemoryPoolConfig { max_size }) => {
+        MemoryPoolConfig::Fair(FairMemoryPoolConfig { max_size, .. }) => {
             Some(resolve_fair_pool_size(*max_size))
         }
     }
@@ -121,12 +121,15 @@ impl RuntimeEnvFactory {
                 info!("using the greedy memory pool with a limit of {max_size} bytes");
                 Arc::new(GreedyMemoryPool::new(max_size))
             }
-            MemoryPoolConfig::Fair(FairMemoryPoolConfig { max_size }) => {
+            MemoryPoolConfig::Fair(FairMemoryPoolConfig {
+                max_size,
+                sharing_strategy,
+            }) => {
                 let pool_size = resolve_fair_pool_size(max_size);
                 info!(
-                    "using the fair memory pool with a limit of {pool_size} bytes{}",
+                    "using the fair memory pool with a limit of {pool_size} bytes{} and {sharing_strategy:?} spillable sharing",
                     if max_size == 0 {
-                        " (auto-sized to 60% of available memory)"
+                        " (auto-sized to 75% of available memory)"
                     } else {
                         ""
                     }
@@ -136,7 +139,11 @@ impl RuntimeEnvFactory {
                 // spillable spatial join cannot starve the merge consumer of
                 // an auto-inserted `RepartitionExec` (DataFusion issue #17334).
                 Arc::new(TrackConsumersPool::new(
-                    SedonaFairSpillPool::new(pool_size, DEFAULT_UNSPILLABLE_RESERVE_RATIO),
+                    SedonaFairSpillPool::new_with_strategy(
+                        pool_size,
+                        DEFAULT_UNSPILLABLE_RESERVE_RATIO,
+                        sharing_strategy,
+                    ),
                     TRACK_CONSUMERS,
                 ))
             }
@@ -270,12 +277,14 @@ mod tests {
         assert_eq!(
             memory_pool_limit(&MemoryPoolConfig::Fair(FairMemoryPoolConfig {
                 max_size: 456,
+                sharing_strategy: Default::default(),
             })),
             Some(456)
         );
         // An auto-sized fair pool still reports a finite limit.
         let auto = memory_pool_limit(&MemoryPoolConfig::Fair(FairMemoryPoolConfig {
             max_size: 0,
+            sharing_strategy: Default::default(),
         }));
         assert!(auto.is_some_and(|size| size > 0));
     }

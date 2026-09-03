@@ -50,9 +50,25 @@
   default: "0"
   description: |
     The maximum size in bytes if the `fair` memory pool is in use.
-    If the value is `0`, the pool is auto-sized to 60% of the available memory,
+    If the value is `0`, the pool is auto-sized to 75% of the available memory,
     where the available memory is the cgroup memory limit if the process runs
     under one, or the total system memory otherwise.
+  experimental: true
+
+- key: runtime.memory_pool.fair.sharing_strategy
+  type: string
+  default: "diluted"
+  description: |
+    How the `fair` memory pool divides the spillable budget among spillable
+    consumers. If the value is `diluted`, every spillable consumer is capped at
+    the spillable budget divided by the number of registered spillable
+    consumers, matching SedonaDB's fair pool: large consumers spill early and
+    the process memory footprint stays small, at the cost of spilling while the
+    pool still has room. If the value is `honest`, a spillable consumer may
+    grow as long as the total spillable usage fits in the spillable budget:
+    nothing spills while the pool has room, which is faster on runtimes with
+    real memory headroom but lets a single query's memory footprint approach
+    the full pool size.
   experimental: true
 
 - key: runtime.temporary_files.paths
