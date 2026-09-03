@@ -9,7 +9,7 @@ name = "pysail"
 # `v${SAIL_VERSION}` release-tag URL unescaped. Bump the postN on every rebuild
 # rather than replacing an existing release asset, so the deployed image can
 # always be traced back to one wheel.
-version = "0.5.3.post5"
+version = "0.5.3.post6"
 description = "Sail Python library"
 authors = [
     { name = "LakeSail", email = "hello@lakesail.com" },
