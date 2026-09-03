@@ -111,6 +111,28 @@ pub struct GreedyMemoryPoolConfig {
 #[serde(deny_unknown_fields)]
 pub struct FairMemoryPoolConfig {
     pub max_size: usize,
+    #[serde(default)]
+    pub sharing_strategy: FairPoolSharingStrategy,
+}
+
+/// How the fair pool divides the spillable budget among spillable consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FairPoolSharingStrategy {
+    /// Cap every spillable consumer at `spillable budget / registered
+    /// spillable consumers`, exactly like SedonaDB's fair pool (and
+    /// DataFusion's `FairSpillPool`). Idle registered consumers dilute the
+    /// cap, which pushes large consumers to spill early - keeping the
+    /// process memory footprint small at the cost of spilling while the
+    /// pool still has room. The default, for SedonaDB parity on
+    /// memory-limited runtimes.
+    #[default]
+    Diluted,
+    /// Let any spillable consumer grow as long as TOTAL spillable usage
+    /// stays within the spillable budget. Nothing spills while the pool has
+    /// room, which is faster on runtimes with real memory headroom but
+    /// lets a single query's anon footprint approach the full pool size.
+    Honest,
 }
 
 mod memory_pool {
@@ -148,12 +170,18 @@ mod memory_pool {
                 super::MemoryPoolConfig::Unbounded => MemoryPool {
                     r#type: Type::Unbounded,
                     greedy: super::GreedyMemoryPoolConfig { max_size: 0 },
-                    fair: super::FairMemoryPoolConfig { max_size: 0 },
+                    fair: super::FairMemoryPoolConfig {
+                        max_size: 0,
+                        sharing_strategy: Default::default(),
+                    },
                 },
                 super::MemoryPoolConfig::Greedy(g) => MemoryPool {
                     r#type: Type::Greedy,
                     greedy: g,
-                    fair: super::FairMemoryPoolConfig { max_size: 0 },
+                    fair: super::FairMemoryPoolConfig {
+                        max_size: 0,
+                        sharing_strategy: Default::default(),
+                    },
                 },
                 super::MemoryPoolConfig::Fair(f) => MemoryPool {
                     r#type: Type::Fair,
