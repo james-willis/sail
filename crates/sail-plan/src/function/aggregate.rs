@@ -1056,6 +1056,21 @@ fn list_built_in_aggregate_functions() -> Vec<(&'static str, AggFunction)> {
         ("vector_avg", F::unknown("vector_avg")),
         ("vector_sum", F::unknown("vector_sum")),
     ]
+    .into_iter()
+    .chain(list_built_in_geo_aggregate_functions())
+    .collect()
+}
+
+/// Aggregate geospatial functions come from sedona-db (the `sail-sedona` crate).
+fn list_built_in_geo_aggregate_functions() -> Vec<(&'static str, AggFunction)> {
+    use crate::function::common::AggFunctionBuilder as F;
+
+    sail_sedona::sedona_aggregate_udfs()
+        .map(|(name, udaf)| {
+            let builder: AggFunction = F::default(move || udaf.clone());
+            (name, builder)
+        })
+        .collect()
 }
 
 pub(crate) fn get_built_in_aggregate_function(name: &str) -> PlanResult<AggFunction> {

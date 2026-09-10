@@ -106,3 +106,6 @@ docs/.vitepress/.temp
 CLAUDE.md
 AGENTS.md
 .roborev/
+
+# local wheel build outputs
+/dist-*/

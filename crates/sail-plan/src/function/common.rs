@@ -175,7 +175,6 @@ impl ScalarFunctionBuilder {
         )
     }
 
-    #[expect(dead_code)]
     pub fn scalar_udf<F>(f: F) -> ScalarFunction
     where
         F: Fn() -> Arc<ScalarUDF> + Send + Sync + 'static,

@@ -159,7 +159,6 @@ prost-types = "0.14"
 axum = "0.8.9"
 datafusion = { version = "54.1.0", default-features = false, features = [
     "nested_expressions",
-    "sql",
     "crypto_expressions",
     "datetime_expressions",
     "encoding_expressions",
@@ -177,7 +176,7 @@ datafusion-datasource = { version = "54.1.0" }
 datafusion-datasource-avro = { version = "54.1.0" }
 datafusion-datasource-json = { version = "54.1.0" }
 datafusion-datasource-parquet = { version = "54.1.0" }
-datafusion-expr = { version = "54.1.0", default-features = false, features = ["sql"] }
+datafusion-expr = { version = "54.1.0", default-features = false }
 datafusion-expr-common = { version = "54.1.0" }
 datafusion-proto = { version = "54.1.0" }
 datafusion-functions = { version = "54.1.0" }
@@ -204,23 +203,23 @@ hdfs-native-object-store = "0.16.0"
 
 
 # SedonaDB geospatial function crates (apache/sedona-db main @ DF54 + spill hygiene)
-sedona-common = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-schema = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-geometry = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-expr = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-raster = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-functions = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-geo = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-geo-generic-alg = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-geo-traits-ext = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-geos = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-tg = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-proj = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b", default-features = false }
-sedona-raster-functions = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-spatial-join = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-query-planner = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-geoparquet = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
-sedona-testing = { git = "https://github.com/james-willis/sedona-db", rev = "f2f1af549e953e0731a963faa6f8b2a4d2fbe64b" }
+sedona-common = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-schema = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-geometry = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-expr = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-raster = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-functions = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-geo = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-geo-generic-alg = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-geo-traits-ext = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-geos = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-tg = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-proj = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5", default-features = false }
+sedona-raster-functions = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-spatial-join = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-query-planner = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-geoparquet = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
+sedona-testing = { git = "https://github.com/james-willis/sedona-db", rev = "a8984ab107d9bf142cb2e14b2647468c6f1139b5" }
 
 ######
 # This is the end of the manually managed dependencies.
