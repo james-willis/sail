@@ -3,19 +3,20 @@ on:
   workflow_dispatch: # Manual trigger only
 
 # Ad-hoc wheel build for the sedona-integration fork. Produces a manylinux_2_28
-# x86_64 free-threaded (cp314t, no-GIL) wheel for running Sail-instead-of-Spark
-# jobs on Wherobots under a free-threaded CPython 3.14t runtime.
+# AARCH64 free-threaded (cp314t, no-GIL) wheel for running Sail-instead-of-Spark
+# jobs on Wherobots under a free-threaded CPython 3.14t runtime. The Wherobots
+# Micro runtime is ARM (Graviton), so the wheel must be aarch64.
 #
-# maturin builds inside a manylinux_2_28 (AlmaLinux 8) container, which ships a
-# python3.14t but is missing a recent protoc (prost-build needs one newer than
-# AlmaLinux 8 ships) and a recent GEOS (the `geos` crate is pinned to v3_12_0 with
-# no `static` feature, so it links system GEOS via geos-config, and AlmaLinux 8's
-# package is too old). The before-script-linux installs both into the container.
-# pyo3 ignores the pyproject `abi3-py38` feature when building for a free-threaded
-# interpreter, producing a version-specific cp314t wheel.
+# Built natively on an ARM runner. maturin builds inside a manylinux_2_28
+# (AlmaLinux 8, aarch64) container that ships python3.14t but is missing a recent
+# protoc (prost-build needs one newer than AlmaLinux 8 ships) and a recent GEOS
+# (the `geos` crate is pinned to v3_12_0 with no `static` feature, so it links
+# system GEOS via geos-config, and AlmaLinux 8's package is too old). The
+# before-script-linux installs both into the container. pyo3 ignores the pyproject
+# abi3-py38 feature for the free-threaded interpreter, producing a cp314t wheel.
 jobs:
-  build-linux-x86_64:
-    runs-on: ubuntu-latest
+  build-linux-aarch64:
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +34,7 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           command: build
-          target: x86_64
+          target: aarch64
           args: --release --out dist --interpreter python3.14t
           rustup-components: rustfmt
           manylinux: "2_28"
@@ -43,7 +44,7 @@ jobs:
             # protoc (match the host-resolved version; AlmaLinux 8's is too old)
             protoc_version="${{ steps.protoc.outputs.version }}"
             protoc_version="${protoc_version#v}"
-            wget -q -O /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-x86_64.zip"
+            wget -q -O /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-aarch_64.zip"
             unzip -o /tmp/protoc.zip -d /usr/local 'bin/*' 'include/*'
             protoc --version
             # GEOS >= 3.12 from source (the geos crate is pinned to v3_12_0 and links
@@ -60,6 +61,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-linux-x86_64-freethreaded
+          name: wheel-linux-aarch64-freethreaded
           path: dist/*.whl
           retention-days: 3
