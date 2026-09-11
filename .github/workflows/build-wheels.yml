@@ -32,6 +32,12 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: PyO3/maturin-action@v1
+        env:
+          # Fat LTO on the sail-python cdylib (arrow + datafusion + sedona) OOM-kills
+          # the final link on the 16 GB ARM runner. Thin LTO keeps most of the perf
+          # at a fraction of the peak memory.
+          CARGO_PROFILE_RELEASE_LTO: "thin"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         with:
           command: build
           target: aarch64
