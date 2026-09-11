@@ -19,7 +19,7 @@
         }
       },
       "output": {
-        "success": "ok"
+        "failure": "error in DataFusion: Execution error: hex got an unexpected argument type: BinaryView"
       }
     },
     {
@@ -41,7 +41,7 @@
         }
       },
       "output": {
-        "success": "ok"
+        "failure": "error in DataFusion: Execution error: hex got an unexpected argument type: BinaryView"
       }
     },
     {
@@ -63,7 +63,7 @@
         }
       },
       "output": {
-        "failure": "error in DataFusion: Error during planning: one value expected: [ScalarFunction(ScalarFunction { func: ScalarUDF { inner: StGeomFromWKB { signature: Signature { type_signature: Exact([Binary]), volatility: Immutable, parameter_names: None } } }, args: [Literal(Binary(\"1,1,0,0,0,0,0,0,0,0,0,240,63,0,0,0,0,0,0,0,64\"), None)] }), Literal(Utf8(\"XDR\"), None)]"
+        "failure": "error in DataFusion: This feature is not implemented: st_asbinary(geometry, utf8): No kernel matching arguments"
       }
     },
     {
@@ -85,7 +85,7 @@
         }
       },
       "output": {
-        "failure": "error in DataFusion: Error during planning: one value expected: [Literal(Binary(\"1,1,0,0,0,0,0,0,0,0,0,240,63,0,0,0,0,0,0,0,64\"), None), Literal(Int32(4326), None)]"
+        "failure": "error in DataFusion: Execution error: hex got an unexpected argument type: BinaryView"
       }
     },
     {
@@ -107,7 +107,7 @@
         }
       },
       "output": {
-        "failure": "not implemented: function: st_srid"
+        "success": "ok"
       }
     },
     {
@@ -129,7 +129,7 @@
         }
       },
       "output": {
-        "failure": "not implemented: function: st_srid"
+        "success": "ok"
       }
     },
     {
@@ -151,7 +151,7 @@
         }
       },
       "output": {
-        "failure": "not implemented: function: st_srid"
+        "success": "ok"
       }
     },
     {
@@ -173,7 +173,7 @@
         }
       },
       "output": {
-        "failure": "error in DataFusion: Error during planning: one value expected: [Literal(Binary(\"1,1,0,0,0,0,0,0,0,0,0,240,63,0,0,0,0,0,0,0,64\"), None), Literal(Int32(4326), None)]"
+        "success": "ok"
       }
     },
     {
@@ -195,7 +195,7 @@
         }
       },
       "output": {
-        "failure": "not implemented: function: st_setsrid"
+        "success": "ok"
       }
     },
     {
@@ -217,7 +217,7 @@
         }
       },
       "output": {
-        "failure": "not implemented: function: st_setsrid"
+        "success": "ok"
       }
     }
   ]
