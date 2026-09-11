@@ -20,6 +20,8 @@ use sail_common_datafusion::session::repartition::RepartitionBufferConfig;
 use sail_delta_lake::session_extension::DeltaTableCache;
 use sail_physical_optimizer::{PhysicalOptimizerOptions, get_physical_optimizers};
 use sail_telemetry::telemetry::global_system_event_reader;
+use sedona_common::option::SedonaOptions;
+use sedona_query_planner::optimizer::register_spatial_join_logical_optimizer;
 
 use crate::catalog::create_catalog_manager;
 use crate::formats::create_table_format_registry;
@@ -135,6 +137,8 @@ impl ServerSessionFactory {
 
     fn create_session_state(&mut self, info: &mut ServerSessionInfo) -> Result<SessionState> {
         let config = self.create_session_config(info)?;
+        // Register SedonaOptions so spatial-join optimizer rules can read their config.
+        let config = config.with_option_extension(SedonaOptions::default());
         let runtime = self
             .runtime_env
             .create(|builder| self.mutator.mutate_runtime_env(builder, info))?;
@@ -150,6 +154,10 @@ impl ServerSessionFactory {
                 ..Default::default()
             }))
             .with_query_planner(new_query_planner());
+        // Register Sedona's spatial-join logical rules so joins with spatial predicates
+        // (ST_Intersects, ST_DWithin, ...) rewrite to SpatialJoinPlanNode; the physical half
+        // is wired in `crate::planner::ExtensionQueryPlanner`.
+        let builder = register_spatial_join_logical_optimizer(builder)?;
         let builder = self.mutator.mutate_state(builder, info)?;
         Ok(builder.build())
     }

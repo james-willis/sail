@@ -7,6 +7,10 @@ edition = { workspace = true }
 workspace = true
 
 [dependencies]
+sail-sedona = { path = "../sail-sedona" }
+sedona-common = { workspace = true }
+sedona-spatial-join = { workspace = true }
+sedona-query-planner = { workspace = true }
 sail-common = { path = "../sail-common" }
 sail-common-datafusion = { path = "../sail-common-datafusion" }
 sail-catalog = { path = "../sail-catalog" }

@@ -77,6 +77,8 @@ use sail_physical_plan::streaming::filter::StreamFilterExec;
 use sail_physical_plan::streaming::limit::StreamLimitExec;
 use sail_physical_plan::streaming::source_adapter::StreamSourceAdapterExec;
 use sail_plan::catalog::CatalogCommandNode;
+use sedona_query_planner::spatial_join_physical_planner::SpatialJoinExtensionPlanner;
+use sedona_spatial_join::physical_planner::DefaultSpatialJoinPhysicalPlanner;
 
 #[derive(Debug)]
 pub struct ExtensionQueryPlanner {}
@@ -103,6 +105,12 @@ impl QueryPlanner for ExtensionQueryPlanner {
             Arc::new(ConsolePhysicalPlanner),
             Arc::new(NoopPhysicalPlanner),
             Arc::new(PythonPhysicalPlanner),
+            // Sedona spatial-join planner: turns SpatialJoinPlanNode (from
+            // register_spatial_join_logical_optimizer) into SpatialJoinExec. Must precede
+            // ExtensionPhysicalPlanner, which errors on any unrecognized extension node.
+            Arc::new(SpatialJoinExtensionPlanner::new(vec![Arc::new(
+                DefaultSpatialJoinPhysicalPlanner::new(),
+            )])),
             Arc::new(ExtensionPhysicalPlanner),
         ];
         let planner = DefaultPhysicalPlanner::with_extension_planners(extension_planners);
