@@ -2,21 +2,28 @@ name: Build Wheels
 on:
   workflow_dispatch: # Manual trigger only
 
-# Ad-hoc wheel build for the sedona-integration fork. Produces a manylinux_2_28
-# AARCH64 free-threaded (cp314t, no-GIL) wheel for running Sail-instead-of-Spark
-# jobs on Wherobots under a free-threaded CPython 3.14t runtime. The Wherobots
-# Micro runtime is ARM (Graviton), so the wheel must be aarch64.
+# Ad-hoc wheel build for the sedona-integration fork. Produces manylinux_2_28
+# free-threaded (cp314t, no-GIL) wheels for both x86_64 and aarch64 so the fork
+# can run under a free-threaded CPython 3.14t runtime on either Wherobots region
+# (us-west-2 Micro is ARM/Graviton -> aarch64; other regions are x86_64).
 #
-# Built natively on an ARM runner. maturin builds inside a manylinux_2_28
-# (AlmaLinux 8, aarch64) container that ships python3.14t but is missing a recent
-# protoc (prost-build needs one newer than AlmaLinux 8 ships) and a recent GEOS
-# (the `geos` crate is pinned to v3_12_0 with no `static` feature, so it links
-# system GEOS via geos-config, and AlmaLinux 8's package is too old). The
-# before-script-linux installs both into the container. pyo3 ignores the pyproject
+# aarch64 builds natively on an ARM runner. maturin builds inside a manylinux_2_28
+# (AlmaLinux 8) container that ships python3.14t but is missing a recent protoc
+# (prost-build needs one newer than AlmaLinux 8 ships) and a recent GEOS (the `geos`
+# crate is pinned to v3_12_0 with no `static` feature, so it links system GEOS via
+# geos-config, and AlmaLinux 8's package is too old); the before-script-linux
+# installs both into the container. Fat LTO on the sail-python cdylib OOM-kills the
+# final link on the 16 GB ARM runner, so thin LTO is used. pyo3 ignores the pyproject
 # abi3-py38 feature for the free-threaded interpreter, producing a cp314t wheel.
 jobs:
-  build-linux-aarch64:
-    runs-on: ubuntu-24.04-arm
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,    target: x86_64,  protoc_arch: linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, target: aarch64, protoc_arch: linux-aarch_64 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,14 +40,11 @@ jobs:
 
       - uses: PyO3/maturin-action@v1
         env:
-          # Fat LTO on the sail-python cdylib (arrow + datafusion + sedona) OOM-kills
-          # the final link on the 16 GB ARM runner. Thin LTO keeps most of the perf
-          # at a fraction of the peak memory.
           CARGO_PROFILE_RELEASE_LTO: "thin"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         with:
           command: build
-          target: aarch64
+          target: ${{ matrix.target }}
           args: --release --out dist --interpreter python3.14t
           rustup-components: rustfmt
           manylinux: "2_28"
@@ -50,7 +54,7 @@ jobs:
             # protoc (match the host-resolved version; AlmaLinux 8's is too old)
             protoc_version="${{ steps.protoc.outputs.version }}"
             protoc_version="${protoc_version#v}"
-            wget -q -O /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-aarch_64.zip"
+            wget -q -O /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-${{ matrix.protoc_arch }}.zip"
             unzip -o /tmp/protoc.zip -d /usr/local 'bin/*' 'include/*'
             protoc --version
             # GEOS >= 3.12 from source (the geos crate is pinned to v3_12_0 and links
@@ -67,6 +71,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-linux-aarch64-freethreaded
+          name: wheel-linux-${{ matrix.target }}-freethreaded
           path: dist/*.whl
           retention-days: 3
