@@ -4,15 +4,21 @@ on:
 
 # Ad-hoc wheel build for the sedona-integration fork. Produces a manylinux_2_28
 # x86_64 abi3 wheel (loads on any CPython >= 3.8) for running Sail-instead-of-Spark
-# jobs on Wherobots. maturin builds the sedona C dependencies (GEOS, tg) from source
-# inside the manylinux container and bundles the shared libraries via auditwheel.
+# jobs on Wherobots.
+#
+# maturin builds inside a manylinux_2_28 (AlmaLinux 8) container, which is missing
+# both a recent protoc (prost-build needs one newer than AlmaLinux 8 ships) and a
+# recent GEOS (the `geos` crate is pinned to v3_12_0 with no `static` feature, so it
+# links system GEOS via geos-config, and AlmaLinux 8's package is too old). The
+# before-script-linux installs both into the container before the build.
 jobs:
   build-linux-x86_64:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install protoc
+      - name: Resolve protoc version
+        id: protoc
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -20,8 +26,32 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           command: build
-          args: --release --out dist
+          target: x86_64
+          # Specify the interpreter explicitly even for abi3, so building inside the
+          # container does not accidentally produce PyPy wheels.
+          args: --release --out dist --interpreter python3.11
+          rustup-components: rustfmt
           manylinux: "2_28"
+          before-script-linux: |
+            set -euxo pipefail
+            yum install -y wget unzip pkgconfig cmake gcc-c++ make
+            # protoc (match the host-resolved version; AlmaLinux 8's is too old)
+            protoc_version="${{ steps.protoc.outputs.version }}"
+            protoc_version="${protoc_version#v}"
+            wget -q -O /tmp/protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-x86_64.zip"
+            unzip -o /tmp/protoc.zip -d /usr/local 'bin/*' 'include/*'
+            protoc --version
+            # GEOS >= 3.12 from source (the geos crate is pinned to v3_12_0 and links
+            # system GEOS; AlmaLinux 8 packages are older than 3.12)
+            geos_version="3.12.2"
+            wget -q -O /tmp/geos.tar.bz2 "https://download.osgeo.org/geos/geos-${geos_version}.tar.bz2"
+            tar xf /tmp/geos.tar.bz2 -C /tmp
+            cmake -S "/tmp/geos-${geos_version}" -B /tmp/geos-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+            cmake --build /tmp/geos-build -j"$(nproc)" --target install
+            echo /usr/local/lib > /etc/ld.so.conf.d/geos.conf
+            echo /usr/local/lib64 >> /etc/ld.so.conf.d/geos.conf
+            ldconfig
+            geos-config --version
 
       - uses: actions/upload-artifact@v4
         with:
