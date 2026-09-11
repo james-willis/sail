@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::catalog::Session;
+use datafusion::datasource::physical_plan::parquet::CachedParquetFileReaderFactory;
 use datafusion_common::Result;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
@@ -9,7 +11,8 @@ use datafusion_datasource::file_format::FileFormat;
 use datafusion_datasource::file_scan_config::{FileScanConfig, FileScanConfigBuilder};
 use object_store::{ObjectMeta, ObjectStore};
 use sail_common_datafusion::schema_evolution::SchemaEvolutionPhysicalExprAdapterFactory;
-use sedona_geoparquet::format::GeoParquetFormat;
+use sedona_common::option::SedonaOptions;
+use sedona_geoparquet::format::{GeoParquetFileSource, GeoParquetFormat};
 use sedona_geoparquet::options::TableGeoParquetOptions;
 
 use crate::listing::source::{ListingFileMeta, ListingFileSample, ListingScanInput, ReadFormat};
@@ -18,6 +21,7 @@ use crate::options::r#gen::ParquetReadOptions;
 #[derive(Debug, Clone)]
 pub struct GeoParquetReadFormat {
     pub(super) options: ParquetReadOptions,
+    pub(super) geoparquet_options: HashMap<String, String>,
 }
 
 impl GeoParquetReadFormat {
@@ -25,9 +29,17 @@ impl GeoParquetReadFormat {
     /// Parquet options. The Parquet options are converted into
     /// [`TableGeoParquetOptions`] (GeoParquet-specific fields keep their
     /// defaults).
-    fn geoparquet_format(&self) -> GeoParquetFormat {
+    /// Build the effective [`TableGeoParquetOptions`]: the resolved Parquet
+    /// options plus the GeoParquet-specific option overrides.
+    fn table_geoparquet_options(&self) -> Result<TableGeoParquetOptions> {
         let parquet_options = self.options.clone().into_table_options();
-        GeoParquetFormat::new(TableGeoParquetOptions::from(parquet_options))
+        let mut geo = TableGeoParquetOptions::from(parquet_options);
+        super::apply_geoparquet_options(&mut geo, &self.geoparquet_options)?;
+        Ok(geo)
+    }
+
+    fn geoparquet_format(&self) -> Result<GeoParquetFormat> {
+        Ok(GeoParquetFormat::new(self.table_geoparquet_options()?))
     }
 }
 
@@ -47,7 +59,7 @@ impl ReadFormat for GeoParquetReadFormat {
         files: &[ListingFileSample<'_>],
         _compression: CompressionTypeVariant,
     ) -> Result<SchemaRef> {
-        let format = self.geoparquet_format();
+        let format = self.geoparquet_format()?;
 
         // Mirror the Parquet format's per-sample iteration: infer a schema from
         // each sampled group (which may span multiple stores) and merge them.
@@ -78,7 +90,7 @@ impl ReadFormat for GeoParquetReadFormat {
         file_schema: SchemaRef,
         _compression: CompressionTypeVariant,
     ) -> Result<ListingFileMeta> {
-        let format = self.geoparquet_format();
+        let format = self.geoparquet_format()?;
         let mut statistics = format
             .infer_stats(ctx, store, Arc::clone(&file_schema), object)
             .await?;
@@ -116,17 +128,37 @@ impl ReadFormat for GeoParquetReadFormat {
         })
     }
 
-    async fn scan(&self, _ctx: &dyn Session, input: ListingScanInput) -> Result<FileScanConfig> {
-        // Use the GeoParquet file source so the scan reads through
-        // `GeoParquetFileSource` (geo-aware pruning + `MetadataPreservingColumn`
-        // wrapping that keeps extension metadata on projected columns), rather
-        // than a plain `ParquetSource`. The listing planner builds the
-        // `DataSourceExec` directly from this config, so the source returned by
-        // `file_source` must already be fully configured.
-        let format = self.geoparquet_format();
-        let source = format.file_source(input.schema);
+    async fn scan(&self, ctx: &dyn Session, input: ListingScanInput) -> Result<FileScanConfig> {
+        // `GeoParquetFormat::create_physical_plan` enriches the `GeoParquetFileSource` with the
+        // file-metadata cache, a `CachedParquetFileReaderFactory`, and the `SedonaOptions` bbox
+        // bounder used for spatial pruning. Sail's listing planner builds `DataSourceExec`
+        // straight from this `FileScanConfig` and never calls `create_physical_plan`, so we
+        // reproduce that enrichment here — otherwise geoparquet scans lose footer caching and
+        // spatial (bbox) pruning versus the sedona-db native path.
+        let mut source = GeoParquetFileSource::new(input.schema, self.table_geoparquet_options()?);
+        if let Some(hint) = self
+            .options
+            .clone()
+            .into_table_options()
+            .global
+            .metadata_size_hint
+        {
+            source = source.with_metadata_size_hint(hint);
+        }
+        let cache = ctx.runtime_env().cache_manager.get_file_metadata_cache();
+        let store = ctx
+            .runtime_env()
+            .object_store(input.object_store_url.clone())?;
+        source = source
+            .with_metadata_cache(Arc::clone(&cache))
+            .with_parquet_file_reader_factory(Arc::new(CachedParquetFileReaderFactory::new(
+                store, cache,
+            )));
+        if let Some(sedona_options) = ctx.config_options().extensions.get::<SedonaOptions>() {
+            source = source.with_bounder_factory(sedona_options.runtime.bounder_factory().clone());
+        }
 
-        let config = FileScanConfigBuilder::new(input.object_store_url, source)
+        let config = FileScanConfigBuilder::new(input.object_store_url, Arc::new(source))
             .with_file_groups(input.file_groups)
             .with_constraints(input.constraints)
             .with_statistics(input.statistics)

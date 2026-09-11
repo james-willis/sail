@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ use crate::utils::split_parquet_compression_string;
 #[derive(Debug, Clone)]
 pub struct GeoParquetWriteFormat {
     pub(super) options: ParquetWriteOptions,
+    pub(super) geoparquet_options: HashMap<String, String>,
 }
 
 #[async_trait]
@@ -31,7 +33,9 @@ impl WriteFormat for GeoParquetWriteFormat {
             .clone()
             .into_table_options()
             .map_err(DataFusionError::from)?;
-        let format = GeoParquetFormat::new(TableGeoParquetOptions::from(options));
+        let mut geo = TableGeoParquetOptions::from(options);
+        super::apply_geoparquet_options(&mut geo, &self.geoparquet_options)?;
+        let format = GeoParquetFormat::new(geo);
         input.sink.file_extension = self.file_extension()?;
         format
             .create_writer_physical_plan(input.input, ctx, input.sink, input.sort_order)
@@ -47,7 +51,9 @@ impl GeoParquetWriteFormat {
             .into_table_options()
             .map_err(DataFusionError::from)?;
         let compression = options.global.compression.clone();
-        let format = GeoParquetFormat::new(TableGeoParquetOptions::from(options));
+        let mut geo = TableGeoParquetOptions::from(options);
+        super::apply_geoparquet_options(&mut geo, &self.geoparquet_options)?;
+        let format = GeoParquetFormat::new(geo);
         if let Some(file_compression_type) = format.compression_type() {
             return match format.get_ext_with_compression(&file_compression_type) {
                 Ok(ext) => Ok(ext),

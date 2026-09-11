@@ -16,13 +16,17 @@
 //! Parquet option resolution ([`ParquetReadOptions`] / [`ParquetWriteOptions`]),
 //! then converted into [`TableGeoParquetOptions`]. GeoParquet-specific option
 //! keys (`geoparquet_version`, `overwrite_bbox_columns`, `geometry_columns`,
-//! `validate`) are not currently plumbed through and fall back to their
-//! defaults (GeoParquet 1.0 on write); the underlying option resolvers ignore
-//! unknown keys rather than failing.
+//! `validate`) are also honored: they are extracted from the raw option layers
+//! and applied onto [`TableGeoParquetOptions`] (the Parquet resolvers ignore
+//! these unknown keys, so they pass through harmlessly).
+
+use std::collections::HashMap;
 
 use datafusion::catalog::Session;
+use datafusion::config::ConfigField;
 use datafusion_common::{DataFusionError, Result};
 use sail_common_datafusion::datasource::OptionLayer;
+use sedona_geoparquet::options::TableGeoParquetOptions;
 
 use crate::listing::source::{FormatFactory, ListingTableFormat};
 use crate::options::ResolveOptions;
@@ -33,6 +37,39 @@ mod write;
 
 pub use read::GeoParquetReadFormat;
 pub use write::GeoParquetWriteFormat;
+
+/// GeoParquet-specific option keys, honored in addition to the Parquet options.
+pub(super) const GEOPARQUET_OPTION_KEYS: [&str; 4] = [
+    "geoparquet_version",
+    "overwrite_bbox_columns",
+    "geometry_columns",
+    "validate",
+];
+
+/// Extract the GeoParquet-specific option keys from the raw option layers.
+pub(super) fn extract_geoparquet_options(options: &[OptionLayer]) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for layer in options {
+        for (key, value) in layer.clone().into_opaque_options() {
+            let key = key.to_lowercase();
+            if GEOPARQUET_OPTION_KEYS.contains(&key.as_str()) && !value.is_empty() {
+                out.insert(key, value);
+            }
+        }
+    }
+    out
+}
+
+/// Apply extracted GeoParquet-specific options onto a [`TableGeoParquetOptions`].
+pub(super) fn apply_geoparquet_options(
+    to: &mut TableGeoParquetOptions,
+    overrides: &HashMap<String, String>,
+) -> Result<()> {
+    for (key, value) in overrides {
+        to.set(key, value)?;
+    }
+    Ok(())
+}
 
 pub type GeoParquetTableFormat = ListingTableFormat<GeoParquetFormatFactory>;
 
@@ -48,12 +85,20 @@ impl FormatFactory for GeoParquetFormatFactory {
     }
 
     fn read(ctx: &dyn Session, options: Vec<OptionLayer>) -> Result<Self::Read> {
+        let geoparquet_options = extract_geoparquet_options(&options);
         let options = ParquetReadOptions::resolve(ctx, options).map_err(DataFusionError::from)?;
-        Ok(GeoParquetReadFormat { options })
+        Ok(GeoParquetReadFormat {
+            options,
+            geoparquet_options,
+        })
     }
 
     fn write(ctx: &dyn Session, options: Vec<OptionLayer>) -> Result<Self::Write> {
+        let geoparquet_options = extract_geoparquet_options(&options);
         let options = ParquetWriteOptions::resolve(ctx, options).map_err(DataFusionError::from)?;
-        Ok(GeoParquetWriteFormat { options })
+        Ok(GeoParquetWriteFormat {
+            options,
+            geoparquet_options,
+        })
     }
 }
