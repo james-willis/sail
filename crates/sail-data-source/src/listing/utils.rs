@@ -20,12 +20,18 @@ use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt};
 use crate::listing::source::ListingFileSample;
 use crate::url::PathGlobFilter;
 
-/// Rewrites inferred field types that have no Spark counterpart.
+/// Normalizes an inferred listing-table schema to Sail's internal canonical form.
 ///
-/// Spark's type system is narrower than Arrow's, and the Arrow-to-Spark conversion rejects
-/// what it cannot represent. Coercing the inferred schema here, rather than letting the
-/// conversion fail later, keeps files readable that DataFusion can already read: the listing
-/// table casts each file to this schema as it scans.
+/// Two rewrites happen here. First, plain `Utf8`/`Binary` (and their `Large` variants) are
+/// promoted to their `Utf8View`/`BinaryView` counterparts so that string and (WKB geometry)
+/// binary columns keep the view layout through the query — buffer-sharing in joins is the point,
+/// especially for geometry WKB in spatial joins. This matches what the Parquet reader already
+/// produces under `schema_force_view_types`, so the declared schema and the scanned data agree
+/// and no cast-back-to-plain materializes the view layout away right after the scan. The
+/// optimizer's `expand_views_at_output` coerces the views back to Spark-representable types at
+/// query output, so the Spark client never sees a view type. Second, sub-microsecond timestamps
+/// are widened to microseconds (Spark's only timestamp resolution). The listing table casts each
+/// file to this schema as it scans.
 pub fn rewrite_unsupported_fields(schema: Arc<Schema>) -> Arc<Schema> {
     Arc::new(normalize_unsupported_fields(&schema))
 }
@@ -34,9 +40,11 @@ pub fn rewrite_unsupported_fields(schema: Arc<Schema>) -> Arc<Schema> {
 ///
 /// [`Schema::try_merge`] rejects fields whose data types differ, so the normalization has to
 /// happen before the merge rather than after it. A directory holding the same column as
-/// `timestamp[ms]` in one file and `timestamp[us]` in another would otherwise fail to merge,
-/// even though Spark represents both as a single timestamp type, and that failure would occur
-/// before [`rewrite_unsupported_fields`] ever ran.
+/// `timestamp[ms]` and `timestamp[us]`, or as `Binary` in one file and `BinaryView` in another
+/// (a raw view-typed write followed by a plain INSERT, or vice versa), would otherwise fail to
+/// merge even though Sail represents each as a single type; normalizing both sides first
+/// ([`rewrite_unsupported_fields`] promotes plain string/binary to their view types) lets them
+/// merge.
 pub fn try_merge_normalized(schemas: impl IntoIterator<Item = Schema>) -> Result<Schema> {
     Ok(Schema::try_merge(
         schemas
@@ -46,15 +54,23 @@ pub fn try_merge_normalized(schemas: impl IntoIterator<Item = Schema>) -> Result
 }
 
 fn normalize_unsupported_fields(schema: &Schema) -> Schema {
-    // TODO: Apply Spark-compatible type normalization recursively inside structs, lists, and
-    // maps. Only top-level fields are normalized today, so nested millisecond timestamps remain
-    // unsupported even though Spark accepts them (SPARK recurses through nested timestamp leaves).
+    // TODO: Apply this normalization recursively inside structs, lists, and maps. Only top-level
+    // fields are normalized today, so nested string/binary columns are not promoted to view types
+    // and nested millisecond timestamps remain un-widened.
     let new_fields: Vec<Field> = schema
         .fields()
         .iter()
         .map(|field| match field.data_type() {
-            // TODO: Spark doesn't support Utf8View
-            DataType::Utf8View => field.as_ref().clone().with_data_type(DataType::Utf8),
+            // Promote plain string/binary (and their Large variants) to view types so the layout
+            // is preserved through joins for buffer-sharing performance; existing view types are
+            // left alone. `expand_views_at_output` coerces them back at query output, so the
+            // Spark client never sees a view type.
+            DataType::Utf8 | DataType::LargeUtf8 => {
+                field.as_ref().clone().with_data_type(DataType::Utf8View)
+            }
+            DataType::Binary | DataType::LargeBinary => {
+                field.as_ref().clone().with_data_type(DataType::BinaryView)
+            }
             // Spark timestamps are microseconds, so second and millisecond timestamps are
             // widened here; the conversion would otherwise reject them even though the
             // widening is lossless. Nanoseconds are left alone so that they are still
@@ -358,7 +374,12 @@ mod tests {
         let metadata = HashMap::from([("k".to_string(), "v".to_string())]);
         let schema = Arc::new(
             Schema::new(vec![
-                Field::new("view", DataType::Utf8View, true),
+                Field::new("str", DataType::Utf8, true),
+                Field::new("large_str", DataType::LargeUtf8, true),
+                Field::new("str_view", DataType::Utf8View, true),
+                Field::new("bin", DataType::Binary, true),
+                Field::new("large_bin", DataType::LargeBinary, true),
+                Field::new("bin_view", DataType::BinaryView, true),
                 Field::new(
                     "ms",
                     DataType::Timestamp(TimeUnit::Millisecond, None),
@@ -380,8 +401,14 @@ mod tests {
         let schema = rewrite_unsupported_fields(schema);
         let field = |name: &str| schema.field_with_name(name).unwrap().clone();
 
-        // Spark has no `Utf8View` type.
-        assert_eq!(field("view").data_type(), &DataType::Utf8);
+        // Plain string/binary (and their Large variants) are promoted to view types so the
+        // layout survives into joins; existing view types are preserved.
+        assert_eq!(field("str").data_type(), &DataType::Utf8View);
+        assert_eq!(field("large_str").data_type(), &DataType::Utf8View);
+        assert_eq!(field("str_view").data_type(), &DataType::Utf8View);
+        assert_eq!(field("bin").data_type(), &DataType::BinaryView);
+        assert_eq!(field("large_bin").data_type(), &DataType::BinaryView);
+        assert_eq!(field("bin_view").data_type(), &DataType::BinaryView);
 
         // Second and millisecond timestamps widen to microseconds, keeping the time zone.
         let us = DataType::Timestamp(TimeUnit::Microsecond, None);
@@ -410,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_merge_normalized_mixed_timestamp_units() {
+    fn test_try_merge_normalized_reconciles_units_and_view_types() {
         let ts = |unit| {
             Schema::new(vec![Field::new(
                 "ts",
@@ -430,13 +457,39 @@ mod tests {
         // Without normalizing first, that same merge fails - which is what this guards against.
         assert!(Schema::try_merge([ts(TimeUnit::Millisecond), ts(TimeUnit::Microsecond)]).is_err());
 
-        // `Utf8View` and `Utf8` reconcile the same way.
-        let merged = try_merge_normalized([
-            Schema::new(vec![Field::new("s", DataType::Utf8View, true)]),
-            Schema::new(vec![Field::new("s", DataType::Utf8, true)]),
-        ])
-        .unwrap();
-        assert_eq!(merged.field(0).data_type(), &DataType::Utf8);
+        // A directory mixing a plain `Utf8` file with a `Utf8View` file merges: both promote to
+        // `Utf8View`. Without the promotion, `Schema::try_merge` rejects the pair.
+        let str_schemas = || {
+            [
+                Schema::new(vec![Field::new("s", DataType::Utf8View, true)]),
+                Schema::new(vec![Field::new("s", DataType::Utf8, true)]),
+            ]
+        };
+        assert_eq!(
+            try_merge_normalized(str_schemas())
+                .unwrap()
+                .field(0)
+                .data_type(),
+            &DataType::Utf8View
+        );
+        assert!(Schema::try_merge(str_schemas()).is_err());
+
+        // Same for binary: a raw `BinaryView` write and a plain `Binary` INSERT merge to
+        // `BinaryView` instead of failing (the mixed view/plain merge-bug fix).
+        let bin_schemas = || {
+            [
+                Schema::new(vec![Field::new("b", DataType::Binary, true)]),
+                Schema::new(vec![Field::new("b", DataType::BinaryView, true)]),
+            ]
+        };
+        assert_eq!(
+            try_merge_normalized(bin_schemas())
+                .unwrap()
+                .field(0)
+                .data_type(),
+            &DataType::BinaryView
+        );
+        assert!(Schema::try_merge(bin_schemas()).is_err());
 
         // Nanoseconds are deliberately left alone, so they still conflict.
         assert!(
