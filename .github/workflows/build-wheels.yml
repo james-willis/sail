@@ -1,0 +1,30 @@
+name: Build Wheels
+on:
+  workflow_dispatch: # Manual trigger only
+
+# Ad-hoc wheel build for the sedona-integration fork. Produces a manylinux_2_28
+# x86_64 abi3 wheel (loads on any CPython >= 3.8) for running Sail-instead-of-Spark
+# jobs on Wherobots. maturin builds the sedona C dependencies (GEOS, tg) from source
+# inside the manylinux container and bundles the shared libraries via auditwheel.
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist
+          manylinux: "2_28"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux-x86_64
+          path: dist/*.whl
+          retention-days: 3
