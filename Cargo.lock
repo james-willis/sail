@@ -3438,6 +3438,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo-index"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f310ad245e63f6b5fcf4a7c2663139708eae1374045396eef95ea3badd242d57"
+dependencies = [
+ "bytemuck",
+ "float_next_after 1.0.0",
+ "geo",
+ "geo-traits",
+ "num-traits",
+ "thiserror 1.0.69",
+ "tinyvec",
+]
+
+[[package]]
 name = "geo-traits"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6006,6 +6021,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "object_store",
+ "parquet-geospatial",
  "paste",
  "seq-macro",
  "simdutf8",
@@ -6014,6 +6030,19 @@ dependencies = [
  "tokio",
  "twox-hash",
  "zstd",
+]
+
+[[package]]
+name = "parquet-geospatial"
+version = "58.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fce21fd6b0ed0f7a8db95bbce7c5327cdd526bcb15e2757a7b5415d9a6a2dfd9"
+dependencies = [
+ "arrow-schema",
+ "geo-traits",
+ "serde",
+ "serde_json",
+ "wkb",
 ]
 
 [[package]]
@@ -7953,6 +7982,7 @@ dependencies = [
  "sail-physical-plan",
  "sail-pyarrow",
  "sail-sql-analyzer",
+ "sedona-geoparquet",
  "serde",
  "thiserror 2.0.20",
  "tokio",
@@ -8436,9 +8466,13 @@ dependencies = [
  "sail-physical-optimizer",
  "sail-physical-plan",
  "sail-plan",
+ "sail-sedona",
  "sail-sql-analyzer",
  "sail-telemetry",
  "secrecy",
+ "sedona-common",
+ "sedona-query-planner",
+ "sedona-spatial-join",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -8820,6 +8854,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "sedona-geoparquet"
+version = "0.5.0"
+source = "git+https://github.com/james-willis/sedona-db?rev=a8984ab107d9bf142cb2e14b2647468c6f1139b5#a8984ab107d9bf142cb2e14b2647468c6f1139b5"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "datafusion",
+ "datafusion-catalog",
+ "datafusion-common",
+ "datafusion-datasource",
+ "datafusion-datasource-parquet",
+ "datafusion-execution",
+ "datafusion-expr",
+ "datafusion-physical-expr",
+ "datafusion-physical-plan",
+ "float_next_after 2.0.0",
+ "futures",
+ "geo-traits",
+ "object_store",
+ "parquet",
+ "parquet-geospatial",
+ "sedona-common",
+ "sedona-expr",
+ "sedona-functions",
+ "sedona-geometry",
+ "sedona-schema",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "wkb",
+]
+
+[[package]]
 name = "sedona-geos"
 version = "0.5.0"
 source = "git+https://github.com/james-willis/sedona-db?rev=a8984ab107d9bf142cb2e14b2647468c6f1139b5#a8984ab107d9bf142cb2e14b2647468c6f1139b5"
@@ -8850,6 +8920,25 @@ dependencies = [
  "sedona-geometry",
  "serde_json",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "sedona-query-planner"
+version = "0.5.0"
+source = "git+https://github.com/james-willis/sedona-db?rev=a8984ab107d9bf142cb2e14b2647468c6f1139b5#a8984ab107d9bf142cb2e14b2647468c6f1139b5"
+dependencies = [
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-execution",
+ "datafusion-expr",
+ "datafusion-optimizer",
+ "datafusion-physical-expr",
+ "datafusion-physical-plan",
+ "sedona-common",
+ "sedona-expr",
+ "sedona-schema",
 ]
 
 [[package]]
@@ -8901,6 +8990,50 @@ dependencies = [
  "sedona-common",
  "sedona-geometry",
  "serde_json",
+]
+
+[[package]]
+name = "sedona-spatial-join"
+version = "0.5.0"
+source = "git+https://github.com/james-willis/sedona-db?rev=a8984ab107d9bf142cb2e14b2647468c6f1139b5#a8984ab107d9bf142cb2e14b2647468c6f1139b5"
+dependencies = [
+ "arrow",
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-common-runtime",
+ "datafusion-execution",
+ "datafusion-expr",
+ "datafusion-physical-expr",
+ "datafusion-physical-plan",
+ "fastrand",
+ "float_next_after 2.0.0",
+ "futures",
+ "geo",
+ "geo-index",
+ "geo-traits",
+ "geo-types",
+ "geos",
+ "libc",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "pin-project-lite",
+ "sedona-common",
+ "sedona-expr",
+ "sedona-functions",
+ "sedona-geo",
+ "sedona-geo-generic-alg",
+ "sedona-geo-traits-ext",
+ "sedona-geometry",
+ "sedona-geos",
+ "sedona-query-planner",
+ "sedona-schema",
+ "sedona-tg",
+ "tokio",
+ "wkb",
 ]
 
 [[package]]
