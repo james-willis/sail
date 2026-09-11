@@ -19,6 +19,7 @@ sail-catalog-glue = { path = "../sail-catalog-glue" }
 sail-catalog-hms = { path = "../sail-catalog-hms" }
 sail-catalog-iceberg = { path = "../sail-catalog-iceberg" }
 sail-catalog-unity = { path = "../sail-catalog-unity" }
+sail-sedona = { path = "../sail-sedona" }
 
 arrow-schema = { workspace = true }
 bytes = { workspace = true }

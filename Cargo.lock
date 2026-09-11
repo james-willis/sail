@@ -8386,6 +8386,7 @@ dependencies = [
  "sail-common",
  "sail-common-datafusion",
  "sail-flight",
+ "sail-sedona",
  "sail-spark-connect",
  "sail-telemetry",
  "tokio",
