@@ -3,19 +3,26 @@ on:
   workflow_dispatch: # Manual trigger only
 
 # Ad-hoc wheel build for the sedona-integration fork. Produces a manylinux_2_28
-# x86_64 abi3 wheel (loads on any CPython >= 3.8) for running Sail-instead-of-Spark
-# jobs on Wherobots.
+# x86_64 free-threaded (cp314t, no-GIL) wheel for running Sail-instead-of-Spark
+# jobs on Wherobots under a free-threaded CPython 3.14t runtime.
 #
-# maturin builds inside a manylinux_2_28 (AlmaLinux 8) container, which is missing
-# both a recent protoc (prost-build needs one newer than AlmaLinux 8 ships) and a
-# recent GEOS (the `geos` crate is pinned to v3_12_0 with no `static` feature, so it
-# links system GEOS via geos-config, and AlmaLinux 8's package is too old). The
-# before-script-linux installs both into the container before the build.
+# maturin builds inside a manylinux_2_28 (AlmaLinux 8) container, which ships a
+# python3.14t but is missing a recent protoc (prost-build needs one newer than
+# AlmaLinux 8 ships) and a recent GEOS (the `geos` crate is pinned to v3_12_0 with
+# no `static` feature, so it links system GEOS via geos-config, and AlmaLinux 8's
+# package is too old). The before-script-linux installs both into the container.
+# pyo3 ignores the pyproject `abi3-py38` feature when building for a free-threaded
+# interpreter, producing a version-specific cp314t wheel.
 jobs:
   build-linux-x86_64:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The "t" suffix selects the free-threaded (no-GIL) interpreter.
+          python-version: "3.14t"
 
       - name: Resolve protoc version
         id: protoc
@@ -27,9 +34,7 @@ jobs:
         with:
           command: build
           target: x86_64
-          # Specify the interpreter explicitly even for abi3, so building inside the
-          # container does not accidentally produce PyPy wheels.
-          args: --release --out dist --interpreter python3.11
+          args: --release --out dist --interpreter python3.14t
           rustup-components: rustfmt
           manylinux: "2_28"
           before-script-linux: |
@@ -55,6 +60,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-linux-x86_64
+          name: wheel-linux-x86_64-freethreaded
           path: dist/*.whl
           retention-days: 3
