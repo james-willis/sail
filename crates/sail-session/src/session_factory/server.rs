@@ -191,6 +191,20 @@ impl ServerSessionFactory {
         optimizer.join_reordering = self.config.optimizer.enable_join_swap;
         optimizer.prefer_hash_join = self.config.optimizer.prefer_hash_join;
         optimizer.expand_views_at_output = self.config.optimizer.expand_views_at_output;
+        // Work around apache/datafusion#24933: the physical scalar-subquery path
+        // (`ScalarSubqueryExec` / `ScalarSubqueryExpr`) discards the Arrow
+        // field-level extension metadata of the subquery's output column. A
+        // geometry produced inside an uncorrelated scalar subquery (e.g.
+        // SpatialBench Q2's `(SELECT ST_GeomFromWKB(z_boundary) ... LIMIT 1)`)
+        // therefore arrives at the enclosing `ST_Intersects` as plain binary,
+        // failing kernel resolution with "No kernel matching arguments".
+        // Disabling this rewrites uncorrelated scalar subqueries to joins, so
+        // the geometry flows as a column and keeps its extension type. This
+        // mirrors sedona-db's SessionContext workaround. The proper fix that
+        // lets us re-enable this is carried on the datafusion fork branch
+        // `jw/scalar-subquery-field-metadata` (preserves the field in
+        // `ScalarSubqueryExpr`); re-enable once that patch is adopted here.
+        optimizer.enable_physical_uncorrelated_scalar_subquery = false;
         match &self.config.mode {
             ExecutionMode::Local => {}
             ExecutionMode::LocalCluster | ExecutionMode::KubernetesCluster => {
