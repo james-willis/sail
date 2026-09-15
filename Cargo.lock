@@ -8446,6 +8446,7 @@ dependencies = [
  "indexmap 2.14.0",
  "log",
  "object_store",
+ "parking_lot",
  "readonly",
  "sail-cache",
  "sail-catalog",

@@ -23,6 +23,7 @@ dbg_macro = "deny"
 todo = "deny"
 
 [workspace.dependencies]
+parking_lot = "0.12"
 thiserror = { version = "2.0.18" }
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = { version = "0.7.19", features = ["rt"] }

@@ -46,6 +46,7 @@ datafusion-datasource = { workspace = true }
 datafusion-expr = { workspace = true }
 datafusion-physical-expr = { workspace = true }
 object_store = { workspace = true }
+parking_lot = { workspace = true }
 secrecy = { workspace = true }
 tonic = { workspace = true }
 tokio = { workspace = true }

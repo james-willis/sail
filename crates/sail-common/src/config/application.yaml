@@ -44,6 +44,18 @@
   description: |
     The maximum size in bytes if the `fair` memory pool is in use.
   experimental: true
+- key: runtime.memory_pool.fair.sharing_strategy
+  type: string
+  default: "honest"
+  description: |
+    How the `fair` memory pool divides the spillable budget among spillable
+    consumers. `honest` (default) lets any consumer grow until the aggregate
+    spillable budget is exhausted, so spilling is a last resort at true
+    exhaustion - the right posture for a single-tenant driver. `active` caps
+    each currently-active consumer at an equal share of the budget (gentler,
+    earlier, incremental spill). `diluted` caps each registered consumer at an
+    equal share, exact SedonaDB / DataFusion FairSpillPool parity.
+  experimental: true
 
 - key: runtime.temporary_files.paths
   type: array

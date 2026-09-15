@@ -5,9 +5,7 @@ use datafusion::execution::cache::cache_manager::{
     CacheManagerConfig, FileMetadataCache, FileStatisticsCache, ListFilesCache,
 };
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
-use datafusion::execution::memory_pool::{
-    FairSpillPool, GreedyMemoryPool, MemoryPool, UnboundedMemoryPool,
-};
+use datafusion::execution::memory_pool::{GreedyMemoryPool, MemoryPool, UnboundedMemoryPool};
 use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 use datafusion_common::Result;
 use log::debug;
@@ -19,6 +17,8 @@ use sail_common::config::{
 };
 use sail_common::runtime::RuntimeHandle;
 use sail_object_store::DynamicObjectStoreRegistry;
+
+use crate::memory_pool::{SedonaFairSpillPool, DEFAULT_UNSPILLABLE_RESERVE_RATIO};
 
 pub struct RuntimeEnvFactory {
     config: Arc<AppConfig>,
@@ -75,9 +75,14 @@ impl RuntimeEnvFactory {
             MemoryPoolConfig::Greedy(GreedyMemoryPoolConfig { max_size }) => {
                 Arc::new(GreedyMemoryPool::new(max_size))
             }
-            MemoryPoolConfig::Fair(FairMemoryPoolConfig { max_size }) => {
-                Arc::new(FairSpillPool::new(max_size))
-            }
+            MemoryPoolConfig::Fair(FairMemoryPoolConfig {
+                max_size,
+                sharing_strategy,
+            }) => Arc::new(SedonaFairSpillPool::new_with_strategy(
+                max_size,
+                DEFAULT_UNSPILLABLE_RESERVE_RATIO,
+                sharing_strategy,
+            )),
         }
     }
 

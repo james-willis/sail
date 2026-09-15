@@ -1,6 +1,7 @@
 pub mod catalog;
 pub mod error;
 pub mod formats;
+pub mod memory_pool;
 pub mod optimizer;
 pub mod planner;
 pub mod runtime;

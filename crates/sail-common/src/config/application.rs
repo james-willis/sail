@@ -124,6 +124,41 @@ pub struct GreedyMemoryPoolConfig {
 #[serde(deny_unknown_fields)]
 pub struct FairMemoryPoolConfig {
     pub max_size: usize,
+    #[serde(default)]
+    pub sharing_strategy: FairPoolSharingStrategy,
+}
+
+/// How the fair pool divides the spillable budget among spillable consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FairPoolSharingStrategy {
+    /// Let any spillable consumer grow as long as TOTAL spillable usage
+    /// stays within the spillable budget. Nothing spills while the pool has
+    /// room, which is faster on runtimes with real memory headroom but
+    /// lets a single query's anon footprint approach the full pool size.
+    /// The default: Sail runs single-tenant (one driver owns the box), so
+    /// spilling should be a last resort at true exhaustion, not a fairness
+    /// division. The spill page-cache hygiene (spill write/read advisors in
+    /// sedona-spatial-join) is what keeps a genuine overflow's late, bursty
+    /// spill survivable.
+    #[default]
+    Honest,
+    /// Cap every spillable consumer at `spillable budget / ACTIVE spillable
+    /// consumers`, where active means currently holding a non-trivial
+    /// amount of memory. Idle registered consumers (e.g. repartition
+    /// channels at zero bytes) do not dilute the cap, so real workers get
+    /// usefully large caps and spill far less than under `diluted`, while
+    /// every active consumer remains individually bounded - the process
+    /// memory footprint stays small, like `diluted`. Opt-in for gentler,
+    /// earlier, incremental spill under multi-query or known-overflow loads.
+    Active,
+    /// Cap every spillable consumer at `spillable budget / registered
+    /// spillable consumers`, exactly like SedonaDB's fair pool (and
+    /// DataFusion's `FairSpillPool`). Idle registered consumers dilute the
+    /// cap, which pushes large consumers to spill early - keeping the
+    /// process memory footprint small at the cost of spilling while the
+    /// pool still has room. Exact SedonaDB behavior parity.
+    Diluted,
 }
 
 mod memory_pool {
@@ -161,12 +196,18 @@ mod memory_pool {
                 super::MemoryPoolConfig::Unbounded => MemoryPool {
                     r#type: Type::Unbounded,
                     greedy: super::GreedyMemoryPoolConfig { max_size: 0 },
-                    fair: super::FairMemoryPoolConfig { max_size: 0 },
+                    fair: super::FairMemoryPoolConfig {
+                        max_size: 0,
+                        sharing_strategy: super::FairPoolSharingStrategy::default(),
+                    },
                 },
                 super::MemoryPoolConfig::Greedy(g) => MemoryPool {
                     r#type: Type::Greedy,
                     greedy: g,
-                    fair: super::FairMemoryPoolConfig { max_size: 0 },
+                    fair: super::FairMemoryPoolConfig {
+                        max_size: 0,
+                        sharing_strategy: super::FairPoolSharingStrategy::default(),
+                    },
                 },
                 super::MemoryPoolConfig::Fair(f) => MemoryPool {
                     r#type: Type::Fair,
