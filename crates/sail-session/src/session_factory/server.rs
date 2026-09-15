@@ -12,7 +12,7 @@ use sail_cache::remote_checkpoint::RemoteCheckpointRegistry;
 use sail_catalog::provider::CatalogCacheManager;
 use sail_catalog_system::service::SystemTableService;
 use sail_common::actor::ActorHandle;
-use sail_common::config::{AppConfig, ExecutionMode};
+use sail_common::config::{AppConfig, ExecutionMode, MemoryPoolConfig};
 use sail_common::runtime::RuntimeHandle;
 use sail_common_datafusion::session::activity::ActivityTracker;
 use sail_common_datafusion::session::job::{JobRunner, JobService};
@@ -139,6 +139,24 @@ impl ServerSessionFactory {
         // Register SedonaOptions (with the PROJ-backed CRS engine) so the
         // spatial-join optimizer rules and ST_Transform can read their config.
         let config = sail_sedona::add_sedona_option_extension(config);
+        // When the memory pool is bounded, cap the in-memory size of spilled
+        // spatial-join batches (mirrors sedona-db's context.rs; the 0.5.3 fork
+        // had this and the 0.7.1 rebase dropped it). Otherwise a single spilled
+        // batch can be many GB and materializing one on read-back overshoots the
+        // container limit and OOMs at scale (SpatialBench q10 sf=100). Unbounded
+        // pools never spill, so there is nothing to cap.
+        let pool_limit = match &self.config.runtime.memory_pool {
+            MemoryPoolConfig::Fair(cfg) => Some(cfg.max_size),
+            MemoryPoolConfig::Greedy(cfg) => Some(cfg.max_size),
+            MemoryPoolConfig::Unbounded => None,
+        }
+        .filter(|&limit| limit > 0);
+        let config = if let Some(limit) = pool_limit {
+            let target_partitions = config.options().execution.target_partitions;
+            sail_sedona::set_spatial_join_spill_threshold(config, limit, target_partitions)
+        } else {
+            config
+        };
         let runtime = self
             .runtime_env
             .create(|builder| self.mutator.mutate_runtime_env(builder, info))?;

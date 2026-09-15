@@ -223,6 +223,34 @@ pub fn add_sedona_option_extension(
     config
 }
 
+/// Cap the in-memory size of spilled spatial-join batches when the memory pool
+/// is bounded, so the join spills in small increments instead of materializing
+/// giant batches on read-back. Without a cap a single spilled batch can be many
+/// GB; reading one back is a single large allocation the pool cannot break up,
+/// which overshoots the container memory limit and OOMs at scale (e.g.
+/// SpatialBench q10 at sf=100). Mirrors sedona-db's `context.rs`: the threshold
+/// is 5% of each partition's memory budget (`pool / target_partitions`), floored
+/// at 10 MB. The 0.5.3 fork wired this; the 0.7.1 rebase dropped it. Only call
+/// this for a bounded pool — an unbounded pool never spills.
+pub fn set_spatial_join_spill_threshold(
+    mut config: datafusion::execution::context::SessionConfig,
+    memory_limit: usize,
+    target_partitions: usize,
+) -> datafusion::execution::context::SessionConfig {
+    use sedona_common::option::SedonaOptions;
+    // 5% == 1 / 20, min 10 MB — identical to sedona-db's constants.
+    const SPILLED_BATCH_THRESHOLD_PERCENT_DIVISOR: usize = 20;
+    const MIN_SPILLED_BATCH_IN_MEMORY_THRESHOLD_BYTES: usize = 10 * 1024 * 1024;
+    let per_partition_memory_limit = memory_limit.div_ceil(target_partitions.max(1));
+    let threshold = per_partition_memory_limit
+        .div_ceil(SPILLED_BATCH_THRESHOLD_PERCENT_DIVISOR)
+        .max(MIN_SPILLED_BATCH_IN_MEMORY_THRESHOLD_BYTES);
+    if let Some(opts) = config.options_mut().extensions.get_mut::<SedonaOptions>() {
+        opts.spatial_join.spilled_batch_in_memory_size_threshold = threshold;
+    }
+    config
+}
+
 /// Configure the global PROJ CRS engine used by ST_Transform.
 ///
 /// libproj is loaded dynamically at runtime; callers pass the path to a
