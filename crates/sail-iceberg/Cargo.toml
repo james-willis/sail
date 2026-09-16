@@ -29,6 +29,9 @@ datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
 arrow-schema = { workspace = true }
+
+# Sedona geometry types (map Iceberg V3 geometry/geography to geoarrow.wkb)
+sedona-schema = { workspace = true }
 parquet-variant = { workspace = true }
 parquet-variant-compute = { workspace = true }
 
