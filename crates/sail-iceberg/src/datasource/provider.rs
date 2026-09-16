@@ -726,11 +726,13 @@ impl IcebergTableProvider {
             })
             .collect();
 
-        Statistics {
+        let mut statistics = Statistics {
             num_rows: Precision::Exact(total_rows),
             total_byte_size: Precision::Exact(total_bytes),
             column_statistics,
-        }
+        };
+        relax_extension_column_statistics(self.arrow_schema.as_ref(), &mut statistics);
+        statistics
     }
 
     /// Create file statistics from Iceberg data file metadata
@@ -785,10 +787,40 @@ impl IcebergTableProvider {
             })
             .collect();
 
-        Statistics {
+        let mut statistics = Statistics {
             num_rows,
             total_byte_size,
             column_statistics,
+        };
+        relax_extension_column_statistics(self.arrow_schema.as_ref(), &mut statistics);
+        statistics
+    }
+}
+
+/// Relax `min`/`max`/`null_count` statistics to inexact for extension-typed
+/// (e.g. `geoarrow.wkb`) columns.
+///
+/// DataFusion's Parquet opener replaces a column reference with a plain literal
+/// when file statistics prove it constant (exact `min == max`, no nulls), and the
+/// physical-expression simplifier then folds away the wrapper that keeps the Arrow
+/// extension metadata attached. The resulting literal loses the geometry/geography
+/// extension typing, so Sedona kernels no longer match (e.g.
+/// `st_geometrytype(binary): No kernel matching arguments` on a full scan whose
+/// geometry column holds a single distinct value). Reporting extension-typed
+/// columns' statistics as inexact keeps them as column references, preserving the
+/// extension typing. WKB min/max carry no pruning value here (spatial pruning uses
+/// Iceberg/geo metadata instead), so this loses nothing. Mirrors the GeoParquet
+/// reader's workaround.
+fn relax_extension_column_statistics(schema: &ArrowSchema, statistics: &mut Statistics) {
+    for (field, column_statistics) in schema
+        .fields()
+        .iter()
+        .zip(statistics.column_statistics.iter_mut())
+    {
+        if field.metadata().contains_key("ARROW:extension:name") {
+            column_statistics.min_value = column_statistics.min_value.clone().to_inexact();
+            column_statistics.max_value = column_statistics.max_value.clone().to_inexact();
+            column_statistics.null_count = Precision::Absent;
         }
     }
 }
@@ -1531,5 +1563,59 @@ impl IcebergTableProvider {
         );
 
         Ok(scan_exec)
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn exact_i64(v: i64) -> ColumnStatistics {
+        ColumnStatistics {
+            null_count: Precision::Exact(0),
+            max_value: Precision::Exact(ScalarValue::Int64(Some(v))),
+            min_value: Precision::Exact(ScalarValue::Int64(Some(v))),
+            distinct_count: Precision::Absent,
+            sum_value: Precision::Absent,
+            byte_size: Precision::Absent,
+        }
+    }
+
+    #[test]
+    fn relax_extension_column_statistics_only_relaxes_geo_columns() {
+        let geom = Field::new("geom", DataType::Binary, true).with_metadata(HashMap::from([(
+            "ARROW:extension:name".to_string(),
+            "geoarrow.wkb".to_string(),
+        )]));
+        let id = Field::new("id", DataType::Int64, false);
+        let schema = ArrowSchema::new(vec![id, geom]);
+
+        let mut statistics = Statistics {
+            num_rows: Precision::Exact(1),
+            total_byte_size: Precision::Exact(100),
+            column_statistics: vec![exact_i64(1), exact_i64(2)],
+        };
+        relax_extension_column_statistics(&schema, &mut statistics);
+
+        // The plain `id` column keeps its exact statistics.
+        assert_eq!(statistics.column_statistics[0].null_count, Precision::Exact(0));
+        assert!(matches!(
+            statistics.column_statistics[0].min_value,
+            Precision::Exact(_)
+        ));
+
+        // The geoarrow.wkb `geom` column is relaxed so the optimizer cannot fold the
+        // reference to a literal (which would strip the extension typing).
+        assert_eq!(statistics.column_statistics[1].null_count, Precision::Absent);
+        assert!(matches!(
+            statistics.column_statistics[1].min_value,
+            Precision::Inexact(_)
+        ));
+        assert!(matches!(
+            statistics.column_statistics[1].max_value,
+            Precision::Inexact(_)
+        ));
     }
 }
