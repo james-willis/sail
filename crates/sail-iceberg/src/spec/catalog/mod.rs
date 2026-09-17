@@ -166,6 +166,7 @@ pub enum TableRequirement {
 #[serde(tag = "action", rename_all = "kebab-case")]
 pub enum TableUpdate {
     UpgradeFormatVersion {
+        #[serde(rename = "format-version")]
         format_version: FormatVersion,
     },
     AssignUuid {
@@ -186,6 +187,7 @@ pub enum TableUpdate {
         spec_id: i32,
     },
     AddSortOrder {
+        #[serde(rename = "sort-order")]
         sort_order: SortOrder,
     },
     SetDefaultSortOrder {
@@ -232,6 +234,7 @@ pub enum TableUpdate {
         snapshot_id: i64,
     },
     SetPartitionStatistics {
+        #[serde(rename = "partition-statistics")]
         partition_statistics: PartitionStatisticsFile,
     },
     RemovePartitionStatistics {
@@ -319,6 +322,7 @@ pub enum ViewUpdate {
         uuid: Uuid,
     },
     UpgradeFormatVersion {
+        #[serde(rename = "format-version")]
         format_version: ViewFormatVersion,
     },
     AddSchema {
@@ -385,5 +389,38 @@ mod _serde_set_statistics {
             )));
         }
         Ok(statistics)
+    }
+}
+
+#[cfg(test)]
+mod update_serde_tests {
+    use super::*;
+
+    /// The REST catalog's commit request models every update field in kebab-case
+    /// (`format-version`, `sort-order`, ...). `rename_all` on the enum only renames
+    /// the `action` tags, so each struct-variant field needs its own rename; a
+    /// missing one surfaces as `missing field \`format-version\`` on the first
+    /// commit that upgrades a table to V3 (e.g. CTAS of a geometry column).
+    #[test]
+    fn table_update_fields_serialize_in_kebab_case() {
+        let value = serde_json::to_value(TableUpdate::UpgradeFormatVersion {
+            format_version: FormatVersion::V3,
+        })
+        .expect("serialize");
+        assert_eq!(value["action"], "upgrade-format-version");
+        assert_eq!(value["format-version"], 3);
+        assert!(value.get("format_version").is_none());
+
+        let view = serde_json::to_value(ViewUpdate::UpgradeFormatVersion {
+            format_version: ViewFormatVersion::V1,
+        })
+        .expect("serialize");
+        assert!(view.get("format-version").is_some());
+
+        let rendered = serde_json::to_string(&TableUpdate::AddSortOrder {
+            sort_order: SortOrder::unsorted_order(),
+        })
+        .expect("serialize");
+        assert!(rendered.contains("\"sort-order\""), "{rendered}");
     }
 }
