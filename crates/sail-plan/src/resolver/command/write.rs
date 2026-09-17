@@ -530,9 +530,7 @@ impl PlanResolver<'_> {
                         // the commit. The table exists and is empty afterwards, so the
                         // data write appends into it instead of creating it again.
                         let manager = self.ctx.extension::<CatalogManager>()?;
-                        let status = manager
-                            .create_table(&catalog_table, create_options)
-                            .await?;
+                        let status = manager.create_table(&catalog_table, create_options).await?;
                         let TableKind::Table {
                             location: Some(location),
                             properties,
@@ -540,7 +538,7 @@ impl PlanResolver<'_> {
                         } = &status.kind
                         else {
                             return Err(PlanError::invalid(format!(
-                                "the catalog did not assign a location to the created table:                                  {table:?}"
+                                "the catalog did not assign a location to the created table: {table:?}"
                             )));
                         };
                         sink_info.options.push(OptionLayer::TablePropertyList {

@@ -1205,7 +1205,10 @@ mod tests {
         ];
         let arrow_schema = create_table_arrow_schema(columns)?;
         assert_eq!(
-            arrow_schema.field(0).metadata().get(ICEBERG_ARROW_FIELD_DOC_KEY),
+            arrow_schema
+                .field(0)
+                .metadata()
+                .get(ICEBERG_ARROW_FIELD_DOC_KEY),
             Some(&"the id".to_string())
         );
         assert_eq!(

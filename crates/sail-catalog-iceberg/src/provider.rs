@@ -1854,7 +1854,12 @@ fn columns_to_nested_fields(
         // instead of opaque `binary`. Columns without such metadata fall through to
         // the plain data type mapping inside `arrow_field_to_iceberg`.
         let arrow_field = ArrowField::new(name.clone(), data_type.clone(), *nullable)
-            .with_metadata(metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+            .with_metadata(
+                metadata
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            );
         let field_type = *arrow_field_to_iceberg(&arrow_field)
             .map_err(|e| {
                 CatalogError::External(format!(
@@ -3714,7 +3719,10 @@ mod tests {
 
         let body = captured_create_table_request(&ctx, options).await;
         assert_eq!(body.get("location"), None);
-        assert_eq!(body["schema"]["fields"][0]["type"], serde_json::json!("long"));
+        assert_eq!(
+            body["schema"]["fields"][0]["type"],
+            serde_json::json!("long")
+        );
         assert!(
             body.get("properties")
                 .and_then(|p| p.get("format-version"))
