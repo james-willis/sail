@@ -356,6 +356,7 @@ fn table_columns(columns: Vec<PyColumnDefinition>) -> PyResult<Vec<CreateTableCo
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             })
         })
         .collect()

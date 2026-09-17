@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
@@ -233,6 +233,10 @@ pub struct TableFormatCreateTableColumn {
     pub default: Option<String>,
     pub generated_always_as: Option<String>,
     pub identity: Option<crate::catalog::CatalogTableColumnIdentity>,
+    /// Arrow field metadata for the column, carrying extension type annotations
+    /// (for example `geoarrow.wkb` for `GEOMETRY`) that a plain Arrow
+    /// [`DataType`] cannot express.
+    pub metadata: BTreeMap<String, String>,
 }
 
 /// Information needed by a table format to initialize storage metadata for a

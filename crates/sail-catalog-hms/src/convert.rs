@@ -929,6 +929,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec![],
             Some("s3://warehouse/items".to_string()),
@@ -979,6 +980,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 }],
                 vec![],
                 Some(format!("s3://warehouse/{logical_format}_items")),
@@ -1029,6 +1031,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec![],
             Some("s3://warehouse/items".to_string()),
@@ -1088,6 +1091,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec!["missing_partition".to_string()],
             Some("s3://warehouse/items".to_string()),
@@ -1121,6 +1125,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec![],
             Some("s3://warehouse/items".to_string()),
@@ -1156,6 +1161,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec![],
             Some("s3://warehouse/items".to_string()),
@@ -1192,6 +1198,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "day".to_string(),
@@ -1201,6 +1208,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
             ],
             vec!["day".to_string()],
@@ -1243,6 +1251,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "day".to_string(),
@@ -1252,6 +1261,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
             ],
             vec!["day".to_string()],
@@ -1276,6 +1286,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "day".to_string(),
@@ -1285,6 +1296,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
             ],
             &["day".to_string()],
@@ -1321,6 +1333,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec![],
             Some("s3://warehouse/items".to_string()),
@@ -1343,6 +1356,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             &[],
             "textfile",
@@ -1373,6 +1387,7 @@ mod tests {
                 default: Some("42".to_string()),
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             },
             CreateTableColumnOptions {
                 name: "text".to_string(),
@@ -1382,6 +1397,7 @@ mod tests {
                 default: Some("'hello'".to_string()),
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             },
             CreateTableColumnOptions {
                 name: "gen".to_string(),
@@ -1391,6 +1407,7 @@ mod tests {
                 default: None,
                 generated_always_as: Some("id + 1".to_string()),
                 identity: None,
+                metadata: Default::default(),
             },
         ];
         let mut table = build_generic_table(
@@ -1463,6 +1480,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             },
             CreateTableColumnOptions {
                 name: "gen".to_string(),
@@ -1472,6 +1490,7 @@ mod tests {
                 default: None,
                 generated_always_as: Some("id + 1".to_string()),
                 identity: None,
+                metadata: Default::default(),
             },
         ];
         let mut table = build_generic_table(
@@ -1570,6 +1589,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "day".to_string(),
@@ -1579,6 +1599,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
             ],
             vec!["day".to_string()],
@@ -1603,6 +1624,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "day".to_string(),
@@ -1612,6 +1634,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
             ],
             &["day".to_string()],
@@ -2124,6 +2147,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "payload".to_string(),
@@ -2170,6 +2194,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "category".to_string(),
@@ -2179,6 +2204,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
                 CreateTableColumnOptions {
                     name: "event_date".to_string(),
@@ -2188,6 +2214,7 @@ mod tests {
                     default: None,
                     generated_always_as: None,
                     identity: None,
+                    metadata: Default::default(),
                 },
             ],
             vec!["category".to_string(), "event_date".to_string()],
@@ -2210,6 +2237,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             },
             CreateTableColumnOptions {
                 name: "payload".to_string(),
@@ -2256,6 +2284,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             },
             CreateTableColumnOptions {
                 name: "category".to_string(),
@@ -2265,6 +2294,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             },
             CreateTableColumnOptions {
                 name: "event_date".to_string(),
@@ -2274,6 +2304,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             },
         ];
 
@@ -2557,6 +2588,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec![],
             Some("s3://warehouse/items".to_string()),
@@ -2588,6 +2620,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             vec![],
             Some("s3://warehouse/items".to_string()),

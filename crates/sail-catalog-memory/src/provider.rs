@@ -226,6 +226,7 @@ impl CatalogProvider for MemoryCatalogProvider {
                     default,
                     generated_always_as,
                     identity,
+                    metadata: _,
                 } = x;
                 let is_partition = partition_by
                     .iter()

@@ -49,10 +49,9 @@ impl PlanResolver<'_> {
         }
         let mut columns = self.resolve_table_columns(columns, state)?;
         let constraints = self.resolve_table_constraints(constraints)?;
-        let location = if let Some(location) = location {
-            location
-        } else {
-            self.resolve_default_table_location(&table).await?
+        let location = match location {
+            Some(location) => Some(location),
+            None => self.resolve_default_table_location(&table).await?,
         };
         let format = self.resolve_catalog_table_format(file_format)?;
         let partition_by =
@@ -80,7 +79,7 @@ impl PlanResolver<'_> {
                 columns,
                 comment,
                 constraints,
-                location: Some(location),
+                location,
                 format,
                 partition_by,
                 sort_by,
@@ -208,10 +207,18 @@ impl PlanResolver<'_> {
         self.resolve_write_with_builder(input, builder, state).await
     }
 
+    /// Computes the location a `CREATE TABLE` without an explicit `LOCATION` should use.
+    ///
+    /// Returns `None` when nothing usable is known and the catalog derives the table
+    /// location itself (an Iceberg REST catalog, for example). The create request then
+    /// omits the location and the catalog's answer is adopted instead. Inventing a path
+    /// under the local warehouse directory would be wrong for such catalogs, and so is
+    /// treating a blank namespace location as a real prefix, which used to yield
+    /// `/<table>`.
     pub(in super::super) async fn resolve_default_table_location(
         &self,
         table: &spec::ObjectName,
-    ) -> PlanResult<String> {
+    ) -> PlanResult<Option<String>> {
         let [qualifier @ .., last] = table.parts() else {
             return Err(PlanError::invalid("missing table name"));
         };
@@ -239,15 +246,17 @@ impl PlanResolver<'_> {
         // Note that this is different from how Spark handles table locations
         // for the default catalog.
         let catalog_manager = self.ctx.extension::<CatalogManager>()?;
-        let location = catalog_manager
-            .get_database_by_qualifier(qualifier)
-            .await?
-            .location;
+        let location = namespace_location_prefix(
+            catalog_manager
+                .get_database_by_qualifier(qualifier)
+                .await?
+                .location,
+        );
         let (base, suffix) = match &location {
-            Some(loc) => (
-                loc.trim_end_matches(object_store::path::DELIMITER),
-                String::new(),
-            ),
+            Some(loc) => (loc.as_str(), String::new()),
+            None if catalog_manager.derives_table_location_by_qualifier(qualifier)? => {
+                return Ok(None);
+            }
             None => (
                 self.config
                     .default_warehouse_directory
@@ -255,13 +264,13 @@ impl PlanResolver<'_> {
                 format!("-{}", uuid::Uuid::new_v4()),
             ),
         };
-        Ok(format!(
+        Ok(Some(format!(
             "{}{}{}{}",
             base,
             object_store::path::DELIMITER,
             name,
             suffix,
-        ))
+        )))
     }
 
     fn resolve_catalog_table_partition_by(
@@ -338,7 +347,25 @@ impl PlanResolver<'_> {
                     generated_always_as,
                     identity,
                 } = x;
-                let data_type = self.resolve_data_type(&data_type, state)?;
+                // Resolve through the field-level resolver so extension type
+                // annotations (for example `geoarrow.wkb` for `GEOMETRY(srid)`)
+                // that only exist as Arrow *field* metadata reach the catalog
+                // and the table format, which would otherwise see plain binary.
+                let field = self.resolve_field(
+                    &spec::Field {
+                        name: name.clone(),
+                        data_type,
+                        nullable,
+                        metadata: vec![],
+                    },
+                    state,
+                )?;
+                let data_type = field.data_type().clone();
+                let metadata: std::collections::BTreeMap<String, String> = field
+                    .metadata()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
                 let identity = Self::resolve_table_column_identity(&name, identity)?;
                 if identity.is_some() && data_type != datafusion::arrow::datatypes::DataType::Int64
                 {
@@ -354,6 +381,7 @@ impl PlanResolver<'_> {
                     default,
                     generated_always_as,
                     identity,
+                    metadata,
                 })
             })
             .collect()
@@ -617,4 +645,43 @@ fn extract_sort_int_arg(args: &[spec::Expr], index: usize, description: &str) ->
         )));
     }
     Ok(value)
+}
+
+/// Normalizes a namespace location into a usable path prefix.
+///
+/// Catalogs that do not model namespace locations answer with an empty string. That is
+/// not a prefix: pasting it in front of the table name yields the absolute path
+/// `/<table>`, which an object store cannot serve and a REST catalog rejects when it
+/// tries to write the table's first metadata file there.
+fn namespace_location_prefix(location: Option<String>) -> Option<String> {
+    let location = location?;
+    let location = location.trim();
+    if location.is_empty() {
+        return None;
+    }
+    Some(
+        location
+            .trim_end_matches(object_store::path::DELIMITER)
+            .to_string(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blank_namespace_location_is_not_a_path_prefix() {
+        assert_eq!(namespace_location_prefix(None), None);
+        assert_eq!(namespace_location_prefix(Some(String::new())), None);
+        assert_eq!(namespace_location_prefix(Some("   ".to_string())), None);
+        assert_eq!(
+            namespace_location_prefix(Some("s3://bucket/ns".to_string())).as_deref(),
+            Some("s3://bucket/ns")
+        );
+        assert_eq!(
+            namespace_location_prefix(Some("s3://bucket/ns/".to_string())).as_deref(),
+            Some("s3://bucket/ns")
+        );
+    }
 }

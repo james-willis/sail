@@ -289,6 +289,10 @@ impl<P: CatalogProvider + ?Sized + 'static> CatalogProvider for CachingCatalogPr
         self.inner.lakehouse_capabilities()
     }
 
+    fn derives_table_location(&self) -> bool {
+        self.inner.derives_table_location()
+    }
+
     async fn resolve_lakehouse_table(
         &self,
         database: &Namespace,

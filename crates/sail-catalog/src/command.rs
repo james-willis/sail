@@ -893,6 +893,7 @@ async fn materialize_table_format_create_metadata<C: SessionExtensionAccessor>(
                         default: column.default().cloned(),
                         generated_always_as: column.generated_always_as().cloned(),
                         identity: column.identity().cloned(),
+                        metadata: column.metadata(),
                     })
                     .collect(),
                 comment,
@@ -914,6 +915,12 @@ trait CreateTableColumnView {
     fn default(&self) -> Option<&String>;
     fn generated_always_as(&self) -> Option<&String>;
     fn identity(&self) -> Option<&sail_common_datafusion::catalog::CatalogTableColumnIdentity>;
+    /// Arrow field metadata for the column. Only column sources that model
+    /// extension type annotations (for example `geoarrow.wkb` for `GEOMETRY`)
+    /// override this.
+    fn metadata(&self) -> std::collections::BTreeMap<String, String> {
+        std::collections::BTreeMap::new()
+    }
 }
 
 impl CreateTableColumnView for crate::provider::CreateTableColumnOptions {
@@ -943,6 +950,10 @@ impl CreateTableColumnView for crate::provider::CreateTableColumnOptions {
 
     fn identity(&self) -> Option<&sail_common_datafusion::catalog::CatalogTableColumnIdentity> {
         self.identity.as_ref()
+    }
+
+    fn metadata(&self) -> std::collections::BTreeMap<String, String> {
+        self.metadata.clone()
     }
 }
 

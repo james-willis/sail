@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use datafusion::arrow::datatypes::DataType;
@@ -81,6 +82,14 @@ pub struct CreateTableColumnOptions {
     pub default: Option<String>,
     pub generated_always_as: Option<String>,
     pub identity: Option<CatalogTableColumnIdentity>,
+    /// Arrow field metadata for the column. Sail attaches extension type
+    /// annotations (for example `geoarrow.wkb` for `GEOMETRY`) to the Arrow
+    /// *field* rather than the Arrow *data type*, so a table format that only
+    /// sees `data_type` cannot tell a geometry column from opaque binary. The
+    /// metadata travels with the column definition so the format can register
+    /// the annotated type.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, PartialOrd, Serialize, Deserialize)]

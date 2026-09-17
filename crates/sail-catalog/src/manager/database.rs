@@ -64,6 +64,16 @@ impl CatalogManager {
         provider.get_database(&database).await
     }
 
+    /// Whether the catalog that owns the given table qualifier derives table locations
+    /// itself. See [`crate::provider::CatalogProvider::derives_table_location`].
+    pub fn derives_table_location_by_qualifier<T: AsRef<str>>(
+        &self,
+        qualifier: &[T],
+    ) -> CatalogResult<bool> {
+        let (provider, _) = self.resolve_database_by_qualifier(qualifier)?;
+        Ok(provider.derives_table_location())
+    }
+
     pub async fn list_databases<T: AsRef<str>>(
         &self,
         qualifier: &[T],

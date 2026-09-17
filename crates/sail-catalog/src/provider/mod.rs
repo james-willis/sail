@@ -79,6 +79,14 @@ pub trait CatalogProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Whether the catalog assigns a table location itself when `CREATE TABLE` carries
+    /// none. Providers that answer `true` let Sail omit the location from the create
+    /// request and adopt the location the catalog returns, instead of inventing one
+    /// under the local warehouse directory.
+    fn derives_table_location(&self) -> bool {
+        false
+    }
+
     async fn resolve_lakehouse_table(
         &self,
         database: &Namespace,

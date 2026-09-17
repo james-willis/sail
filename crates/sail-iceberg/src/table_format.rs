@@ -914,6 +914,7 @@ fn create_table_arrow_schema(columns: Vec<TableFormatCreateTableColumn>) -> Resu
                  default,
                  generated_always_as,
                  identity,
+                 metadata,
              }| {
                 if default.is_some() {
                     return not_impl_err!("column DEFAULT in Iceberg CREATE TABLE");
@@ -924,13 +925,17 @@ fn create_table_arrow_schema(columns: Vec<TableFormatCreateTableColumn>) -> Resu
                 if identity.is_some() {
                     return not_impl_err!("identity columns in Iceberg CREATE TABLE");
                 }
-                let mut field = ArrowField::new(name, data_type, nullable);
+                // The column's Arrow field metadata carries extension type annotations
+                // (`geoarrow.wkb` for `GEOMETRY`/`GEOGRAPHY`) that the Arrow data type
+                // alone cannot express, and `arrow_schema_to_iceberg` needs the field to
+                // register Iceberg `geometry(crs)` rather than opaque `binary`.
+                let mut field_metadata: std::collections::HashMap<String, String> =
+                    metadata.into_iter().collect();
                 if let Some(comment) = comment {
-                    field = field.with_metadata(std::collections::HashMap::from([(
-                        ICEBERG_ARROW_FIELD_DOC_KEY.to_string(),
-                        comment,
-                    )]));
+                    field_metadata.insert(ICEBERG_ARROW_FIELD_DOC_KEY.to_string(), comment);
                 }
+                let mut field =
+                    ArrowField::new(name, data_type, nullable).with_metadata(field_metadata);
                 field = with_variant_extension_if_marked_storage(field);
                 Ok(field)
             },
@@ -1143,6 +1148,7 @@ fn alter_table_properties_conflict_error() -> DataFusionError {
 
 #[cfg(test)]
 mod tests {
+    use datafusion::arrow::datatypes::DataType as ArrowDataType;
     use sail_common_datafusion::catalog::{
         CatalogProviderId, CatalogTableIdentity, CommitAuthority, IcebergRestTableSessionRef,
         LakehouseAuthority, LakehouseFormat, LakehouseOperation, MetadataPointerAuthority,
@@ -1150,6 +1156,82 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn create_table_arrow_schema_keeps_the_geoarrow_annotation() -> Result<()> {
+        // A `GEOMETRY(4326)` column reaches the table format as Arrow `Binary` plus
+        // `geoarrow.wkb` field metadata. Dropping that metadata here registered the
+        // column as opaque Iceberg `binary`.
+        let columns = vec![
+            TableFormatCreateTableColumn {
+                name: "id".to_string(),
+                data_type: ArrowDataType::Int64,
+                nullable: false,
+                comment: Some("the id".to_string()),
+                default: None,
+                generated_always_as: None,
+                identity: None,
+                metadata: Default::default(),
+            },
+            TableFormatCreateTableColumn {
+                name: "geom".to_string(),
+                data_type: ArrowDataType::Binary,
+                nullable: true,
+                comment: None,
+                default: None,
+                generated_always_as: None,
+                identity: None,
+                metadata: std::collections::BTreeMap::from([
+                    (
+                        "ARROW:extension:name".to_string(),
+                        "geoarrow.wkb".to_string(),
+                    ),
+                    (
+                        "ARROW:extension:metadata".to_string(),
+                        r#"{"crs":"OGC:CRS84"}"#.to_string(),
+                    ),
+                ]),
+            },
+            TableFormatCreateTableColumn {
+                name: "payload".to_string(),
+                data_type: ArrowDataType::Binary,
+                nullable: true,
+                comment: None,
+                default: None,
+                generated_always_as: None,
+                identity: None,
+                metadata: Default::default(),
+            },
+        ];
+        let arrow_schema = create_table_arrow_schema(columns)?;
+        assert_eq!(
+            arrow_schema.field(0).metadata().get(ICEBERG_ARROW_FIELD_DOC_KEY),
+            Some(&"the id".to_string())
+        );
+        assert_eq!(
+            arrow_schema.field(1).metadata().get("ARROW:extension:name"),
+            Some(&"geoarrow.wkb".to_string())
+        );
+
+        let iceberg_schema = arrow_schema_to_iceberg(&arrow_schema)?;
+        assert_eq!(
+            iceberg_schema.fields()[1].field_type.as_ref(),
+            &crate::spec::types::Type::Primitive(crate::spec::PrimitiveType::Geometry {
+                crs: Some("OGC:CRS84".to_string()),
+            })
+        );
+        // A binary column without the annotation is unchanged.
+        assert_eq!(
+            iceberg_schema.fields()[2].field_type.as_ref(),
+            &crate::spec::types::Type::Primitive(crate::spec::PrimitiveType::Binary)
+        );
+        // Geometry forces the bootstrap to format-version 3.
+        assert_eq!(
+            crate::operations::helpers::format_version_for_schema(&iceberg_schema),
+            crate::spec::FormatVersion::V3
+        );
+        Ok(())
+    }
 
     #[test]
     fn split_iceberg_write_options_keeps_catalog_options_out_of_table_properties() -> Result<()> {

@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
+use arrow::datatypes::Field as ArrowField;
 use percent_encoding::percent_decode_str;
 use sail_catalog::credentials::CatalogCredentials;
 use sail_catalog::error::{CatalogError, CatalogObject, CatalogResult};
@@ -35,9 +36,11 @@ use sail_common_datafusion::catalog::{
     DatabaseStatus, IcebergRestTableSessionRef, ScanAuthority, TableAccessSessionRef,
     TableColumnStatus, TableKind, TableStatus,
 };
+use sail_iceberg::operations::helpers::format_version_for_schema;
 use sail_iceberg::utils::partition_transform::catalog_partition_field_from_iceberg;
 use sail_iceberg::{
-    FormatVersion, Literal, NestedField, StructType, arrow_type_to_iceberg, iceberg_type_to_arrow,
+    FormatVersion, Literal, NestedField, StructType, arrow_field_to_iceberg, arrow_type_to_iceberg,
+    iceberg_type_to_arrow,
 };
 use tokio::sync::OnceCell;
 
@@ -835,6 +838,12 @@ impl CatalogProvider for IcebergRestCatalogProvider {
         ]
     }
 
+    /// An Iceberg REST catalog owns the table layout under its warehouse: a create
+    /// request without `location` makes the catalog derive one and report it back.
+    fn derives_table_location(&self) -> bool {
+        true
+    }
+
     async fn create_database(
         &self,
         database: &Namespace,
@@ -1143,6 +1152,16 @@ impl CatalogProvider for IcebergRestCatalogProvider {
             )));
         }
 
+        // A blank location is not a location: the REST spec rejects `""` outright, and an
+        // empty namespace location used to be pasted in front of the table name. An
+        // explicit location may also arrive as a `location` or `path` table property, the
+        // way `create_view` accepts it. When nothing names a location, omit the field and
+        // let the catalog derive one under its warehouse.
+        let location = location
+            .map(|location| location.trim().to_string())
+            .filter(|location| !location.is_empty())
+            .or_else(|| location_from_properties(&properties));
+
         let catalog_config = self.resolved_catalog_config().await?;
 
         if mode.ignore_if_exists()
@@ -1184,6 +1203,11 @@ impl CatalogProvider for IcebergRestCatalogProvider {
             .with_identifier_field_ids(identifier_field_ids.clone())
             .build()
             .map_err(|e| CatalogError::External(format!("Failed to build schema: {e}")))?;
+        // Types such as `geometry`/`geography` and column defaults only exist from
+        // format-version 3, so a schema that uses them must bootstrap at V3 even when
+        // the table properties asked for less. This mirrors what the path-based writer
+        // does in `bootstrap_empty_table_metadata`.
+        let format_version = format_version.max(format_version_for_schema(&schema));
         let schema = crate::r#gen::Schema::try_from(schema)?;
 
         let partition_spec = build_partition_spec(&partition_by, bucket_by.as_ref(), &name_to_id)?;
@@ -1195,6 +1219,16 @@ impl CatalogProvider for IcebergRestCatalogProvider {
         }
         for (k, v) in properties {
             props.insert(k, v);
+        }
+        // The REST catalog bootstraps the first metadata file, so the requested
+        // format version has to travel as a table property. Only send it when it
+        // differs from the Iceberg default so catalogs keep their own default
+        // otherwise.
+        if format_version != FormatVersion::default() {
+            props.insert(
+                "format-version".to_string(),
+                (format_version as i32).to_string(),
+            );
         }
 
         let request = crate::r#gen::CreateTableRequest {
@@ -1748,6 +1782,19 @@ where
     })
 }
 
+/// Reads an explicit table location from `location` or `path` table properties,
+/// preferring `location`. Blank values are ignored.
+fn location_from_properties(properties: &[(String, String)]) -> Option<String> {
+    let find = |key: &str| {
+        properties
+            .iter()
+            .find(|(k, _)| k.trim().eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    find("location").or_else(|| find("path"))
+}
+
 fn requested_iceberg_format_version(
     properties: &[(String, String)],
 ) -> CatalogResult<FormatVersion> {
@@ -1797,13 +1844,24 @@ fn columns_to_nested_fields(
             default,
             generated_always_as: _,
             identity: _,
+            metadata,
         } = col;
 
-        let field_type = arrow_type_to_iceberg(data_type).map_err(|e| {
-            CatalogError::External(format!(
-                "Failed to convert Arrow type to Iceberg type for column '{name}': {e}"
-            ))
-        })?;
+        // Extension type annotations live on the Arrow *field*, not on the Arrow
+        // *data type*: Sail's `GEOMETRY(srid)` is an Arrow `Binary` carrying
+        // `geoarrow.wkb` field metadata. Rebuild the field so the conversion can
+        // see the annotation and register Iceberg `geometry(crs)` / `geography(crs)`
+        // instead of opaque `binary`. Columns without such metadata fall through to
+        // the plain data type mapping inside `arrow_field_to_iceberg`.
+        let arrow_field = ArrowField::new(name.clone(), data_type.clone(), *nullable)
+            .with_metadata(metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+        let field_type = *arrow_field_to_iceberg(&arrow_field)
+            .map_err(|e| {
+                CatalogError::External(format!(
+                    "Failed to convert Arrow type to Iceberg type for column '{name}': {e}"
+                ))
+            })?
+            .field_type;
 
         // `default` is not supported until Iceberg V3.
         let default_literal = if let Some(default) = default {
@@ -2195,6 +2253,7 @@ mod tests {
                 default: None,
                 generated_always_as: None,
                 identity: None,
+                metadata: Default::default(),
             }],
             comment: None,
             constraints: vec![],
@@ -3530,6 +3589,150 @@ mod tests {
             .unwrap();
 
         assert_eq!(status.name, "table1");
+    }
+
+    /// A `GEOMETRY(4326)` column as the plan resolver builds it: Arrow `Binary`
+    /// storage plus the `geoarrow.wkb` extension annotation on the *field*.
+    fn geoarrow_column(name: &str) -> CreateTableColumnOptions {
+        CreateTableColumnOptions {
+            name: name.to_string(),
+            data_type: DataType::Binary,
+            nullable: true,
+            comment: None,
+            default: None,
+            generated_always_as: None,
+            identity: None,
+            metadata: std::collections::BTreeMap::from([
+                (
+                    "ARROW:extension:name".to_string(),
+                    "geoarrow.wkb".to_string(),
+                ),
+                (
+                    "ARROW:extension:metadata".to_string(),
+                    r#"{"crs":"OGC:CRS84"}"#.to_string(),
+                ),
+            ]),
+        }
+    }
+
+    async fn captured_create_table_request(
+        ctx: &TestContext,
+        options: CreateTableOptions,
+    ) -> serde_json::Value {
+        let namespace = Namespace::try_from(vec!["db1".to_string()]).unwrap();
+        ctx.mock_post_json(
+            &ctx.path("/namespaces/db1/tables"),
+            create_table_response_with_access_session_hints(),
+        )
+        .await;
+        ctx.catalog
+            .create_table(&namespace, "table1", options)
+            .await
+            .unwrap();
+        let requests = ctx.server.received_requests().await.unwrap();
+        let request = requests
+            .iter()
+            .rev()
+            .find(|r| r.url.path().ends_with("/namespaces/db1/tables"))
+            .expect("create table request");
+        serde_json::from_slice(&request.body).expect("create table request body")
+    }
+
+    #[test]
+    fn geoarrow_columns_become_iceberg_geometry() {
+        let fields = columns_to_nested_fields(
+            &[
+                simple_create_table_options().columns[0].clone(),
+                geoarrow_column("geom"),
+            ],
+            FormatVersion::V2,
+        )
+        .unwrap();
+        assert_eq!(
+            fields[1].field_type.as_ref(),
+            &sail_iceberg::spec::types::Type::Primitive(sail_iceberg::PrimitiveType::Geometry {
+                crs: Some("OGC:CRS84".to_string()),
+            })
+        );
+        // A binary column with no extension annotation stays binary.
+        let mut plain = geoarrow_column("payload");
+        plain.metadata.clear();
+        let fields = columns_to_nested_fields(&[plain], FormatVersion::V2).unwrap();
+        assert_eq!(
+            fields[0].field_type.as_ref(),
+            &sail_iceberg::spec::types::Type::Primitive(sail_iceberg::PrimitiveType::Binary)
+        );
+    }
+
+    #[test]
+    fn location_is_read_from_location_or_path_properties() {
+        assert_eq!(location_from_properties(&[]), None);
+        assert_eq!(
+            location_from_properties(&[("location".to_string(), "  ".to_string())]),
+            None
+        );
+        assert_eq!(
+            location_from_properties(&[("path".to_string(), "s3://bucket/t".to_string())]),
+            Some("s3://bucket/t".to_string())
+        );
+        // `location` wins over `path` when both are present.
+        assert_eq!(
+            location_from_properties(&[
+                ("path".to_string(), "s3://bucket/from-path".to_string()),
+                ("Location".to_string(), "s3://bucket/from-loc".to_string()),
+            ]),
+            Some("s3://bucket/from-loc".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn create_table_omits_blank_location_and_registers_geometry_at_v3() {
+        let ctx = TestContext::new(Some("test")).await;
+        let mut options = simple_create_table_options();
+        // The Wherobots catalog reports `location: ""` for every namespace, so the
+        // resolver used to hand down an empty prefix. An empty location must not
+        // reach the request: the REST spec rejects it, and the catalog derives a
+        // location of its own when the field is absent.
+        options.location = Some("   ".to_string());
+        options.columns.push(geoarrow_column("geom"));
+
+        let body = captured_create_table_request(&ctx, options).await;
+        assert_eq!(body.get("location"), None);
+        assert_eq!(
+            body["schema"]["fields"][1]["type"],
+            serde_json::json!("geometry(OGC:CRS84)")
+        );
+        // Geometry only exists from format-version 3, so the create has to ask for it.
+        assert_eq!(body["properties"]["format-version"], serde_json::json!("3"));
+    }
+
+    #[tokio::test]
+    async fn create_table_without_geometry_keeps_the_catalog_format_version() {
+        let ctx = TestContext::new(Some("test")).await;
+        let mut options = simple_create_table_options();
+        options.location = None;
+
+        let body = captured_create_table_request(&ctx, options).await;
+        assert_eq!(body.get("location"), None);
+        assert_eq!(body["schema"]["fields"][0]["type"], serde_json::json!("long"));
+        assert!(
+            body.get("properties")
+                .and_then(|p| p.get("format-version"))
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn create_table_promotes_a_location_table_property() {
+        let ctx = TestContext::new(Some("test")).await;
+        let mut options = simple_create_table_options();
+        options.location = None;
+        options
+            .properties
+            .push(("location".to_string(), "s3://bucket/explicit".to_string()));
+
+        let body = captured_create_table_request(&ctx, options).await;
+        assert_eq!(body["location"], serde_json::json!("s3://bucket/explicit"));
     }
 
     #[tokio::test]

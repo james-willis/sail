@@ -287,6 +287,9 @@ impl PlanResolver<'_> {
                 column_match,
             } => {
                 let info = self.resolve_table_info(&table).await?;
+                // Set when the table had to be created during planning; the write then
+                // targets the freshly created empty table.
+                let mut write_mode_override: Option<WriteMode> = None;
 
                 // Return early if the target exists and the mode says to skip
                 if matches!(mode, WriteMode::IgnoreIfExists) && info.is_some() {
@@ -376,6 +379,10 @@ impl PlanResolver<'_> {
                             items: table_properties,
                         },
                     );
+                    // An explicit location can arrive as a write option (`path`) or as a
+                    // table property (`tableProperty("location", ...)`). Either one is the
+                    // table's location, so do not bury it under the computed default.
+                    let explicit_location = find_path_in_options(&sink_info.options);
                     // Create or replace the table
                     if write_format.is_empty() {
                         if let Some(format) = info.as_ref().map(|x| &x.format) {
@@ -388,15 +395,20 @@ impl PlanResolver<'_> {
                         sink_info.options.push(OptionLayer::OptionList {
                             items: vec![("path".to_string(), location.clone())],
                         });
-                    } else {
-                        let default_location = self.resolve_default_table_location(&table).await?;
+                    } else if explicit_location.is_none()
+                        && let Some(default_location) =
+                            self.resolve_default_table_location(&table).await?
+                    {
                         sink_info.options.insert(
                             0,
                             OptionLayer::OptionList {
                                 items: vec![("path".to_string(), default_location)],
                             },
                         );
-                    };
+                    }
+                    // When neither the request nor the catalog namespace names a location
+                    // and the catalog derives one itself, the options carry no path yet;
+                    // it is adopted from the create result below.
                     if sink_info
                         .partition_by
                         .iter()
@@ -432,6 +444,14 @@ impl PlanResolver<'_> {
                             default: None,
                             generated_always_as: None,
                             identity: None,
+                            // Extension type annotations (for example `geoarrow.wkb`)
+                            // live in the Arrow field metadata, so carry it into the
+                            // create so the table format registers the annotated type.
+                            metadata: f
+                                .metadata()
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect(),
                         })
                         .collect();
                     // TODO: Revisit passing write options as table properties.
@@ -502,11 +522,54 @@ impl PlanResolver<'_> {
                             .execution
                             .for_operation(LakehouseOperation::Write),
                     );
-                    let command = CatalogCommand::CreateTable {
-                        table: table.clone().into(),
-                        options: create_options,
-                    };
-                    preconditions.push(Arc::new(self.resolve_catalog_command(command)?));
+                    if create_options.location.is_none() {
+                        // The catalog assigns the location. The writer resolves its path
+                        // while the plan is built, long before the `CREATE TABLE`
+                        // precondition would run, so the table is created here and the
+                        // location the catalog reports is adopted for the data write and
+                        // the commit. The table exists and is empty afterwards, so the
+                        // data write appends into it instead of creating it again.
+                        let manager = self.ctx.extension::<CatalogManager>()?;
+                        let status = manager
+                            .create_table(&catalog_table, create_options)
+                            .await?;
+                        let TableKind::Table {
+                            location: Some(location),
+                            properties,
+                            ..
+                        } = &status.kind
+                        else {
+                            return Err(PlanError::invalid(format!(
+                                "the catalog did not assign a location to the created table:                                  {table:?}"
+                            )));
+                        };
+                        sink_info.options.push(OptionLayer::TablePropertyList {
+                            items: properties.clone(),
+                        });
+                        sink_info.options.push(OptionLayer::OptionList {
+                            items: vec![("path".to_string(), location.clone())],
+                        });
+                        sink_info.lakehouse_table = Some(
+                            manager
+                                .resolve_lakehouse_table_status(
+                                    &catalog_table,
+                                    &status,
+                                    LakehouseOperation::Create,
+                                )
+                                .await?
+                                .execution
+                                .for_operation(LakehouseOperation::Write),
+                        );
+                        write_mode_override = Some(WriteMode::Append {
+                            error_if_absent: false,
+                        });
+                    } else {
+                        let command = CatalogCommand::CreateTable {
+                            table: table.clone().into(),
+                            options: create_options,
+                        };
+                        preconditions.push(Arc::new(self.resolve_catalog_command(command)?));
+                    }
                 }
 
                 if sink_info.lakehouse_table.is_none() {
@@ -517,7 +580,11 @@ impl PlanResolver<'_> {
                 }
 
                 sink_info.mode = self
-                    .resolve_write_mode(mode, schema_for_cond.as_ref(), state)
+                    .resolve_write_mode(
+                        write_mode_override.unwrap_or(mode),
+                        schema_for_cond.as_ref(),
+                        state,
+                    )
                     .await?;
             }
         };
