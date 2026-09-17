@@ -231,6 +231,38 @@ sedona-testing = { git = "https://github.com/james-willis/sedona-db", rev = "70d
 # Override dependencies to use our forked versions.
 # You can use `path = "..."` to temporarily point to your local copy of the crates to speed up local development.
 
+# arrow-rs 58.4.0 plus a backport of apache/arrow-rs#10065 (d4d79be3), which fixes the
+# Parquet GEOMETRY/GEOGRAPHY logical-type CRS string: a geoarrow.wkb CRS of "OGC:CRS84"
+# was written as Geometry(crs="OGC:CRS84") with the JSON quotes intact, which readers
+# reject as an invalid CRS value. Upstream shipped the fix in 59.3.0, so this override
+# goes away with the DataFusion 55 / arrow 59 bump.
+#
+# `parquet` depends on the other arrow-rs crates by workspace path, so patching it alone
+# would resolve those from the git source while the rest of the tree kept the crates.io
+# copies -- two incompatible `arrow_schema::Field` types. Every arrow-rs crate in the
+# lockfile is therefore pinned to the same git source.
+arrow = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-arith = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-array = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-avro = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-buffer = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-cast = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-csv = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-data = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-flight = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-ipc = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-json = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-ord = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-row = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-schema = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-select = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+arrow-string = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+parquet = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+parquet-geospatial = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+parquet-variant = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+parquet-variant-compute = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+parquet-variant-json = { git = "https://github.com/james-willis/arrow-rs", branch = "58.4-geo-crs-fix" }
+
 [profile.release]
 # https://doc.rust-lang.org/cargo/reference/profiles.html#release
 opt-level = 3
