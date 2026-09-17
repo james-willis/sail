@@ -35,6 +35,9 @@ use crate::ICEBERG_LIST_FIELD_NAME;
 use crate::spec::types::values::Literal;
 use crate::spec::{ListType, MapType, NestedField, PrimitiveType, Schema, StructType, Type};
 
+/// The Arrow extension name SedonaDB uses for WKB geometry/geography columns.
+const SEDONA_GEOARROW_WKB_EXTENSION_NAME: &str = "geoarrow.wkb";
+
 pub const ICEBERG_ARROW_FIELD_DOC_KEY: &str = "doc";
 pub const ICEBERG_FIELD_INITIAL_DEFAULT: &str = "iceberg.field.initial-default";
 pub const ICEBERG_FIELD_WRITE_DEFAULT: &str = "iceberg.field.write-default";
@@ -105,6 +108,61 @@ fn iceberg_crs_to_sedona(crs: &Option<String>) -> Result<Crs> {
     }
 }
 
+/// A SedonaDB [`Crs`] maps back to Iceberg's optional CRS string; `Crs::None` is `None`.
+///
+/// `to_crs_string` is the representation the CRS trait documents as the one expected by
+/// Parquet/Iceberg `GEOMETRY`/`GEOGRAPHY` (an `authority:code` where one exists, PROJJSON
+/// otherwise), so it round-trips through [`iceberg_crs_to_sedona`].
+fn sedona_crs_to_iceberg(crs: &Crs) -> Option<String> {
+    crs.as_ref().map(|crs| crs.to_crs_string())
+}
+
+/// The inverse of [`geo_sedona_type`]: a `geoarrow.wkb` extension field becomes an Iceberg
+/// V3 `geometry(crs)` (planar edges) or `geography(crs)` (spherical edges). Returns `None`
+/// for every field that is not a SedonaDB geometry, so non-geo types keep their plain
+/// Arrow mapping.
+///
+/// The Iceberg schema is the only place the geometry annotation can live on the write
+/// path: the writer round-trips the input Arrow schema through Iceberg
+/// (`arrow_schema_to_iceberg` then `iceberg_schema_to_arrow`), so a column that lands on
+/// `PrimitiveType::Binary` here is written as opaque `binary` and read back untyped.
+fn sedona_geo_primitive(field: &ArrowField) -> Result<Option<PrimitiveType>> {
+    // Only consult sedona for fields that actually carry the geoarrow extension name;
+    // anything else (including a third-party extension type) keeps the Arrow mapping.
+    if field
+        .metadata()
+        .get(arrow_schema::extension::EXTENSION_TYPE_NAME_KEY)
+        .map(String::as_str)
+        != Some(SEDONA_GEOARROW_WKB_EXTENSION_NAME)
+    {
+        return Ok(None);
+    }
+    let sedona_type = SedonaType::from_storage_field(field).map_err(|e| {
+        plan_datafusion_err!("Failed to resolve geometry field {}: {e}", field.name())
+    })?;
+    let (edges, crs) = match &sedona_type {
+        SedonaType::Wkb(edges, crs) | SedonaType::WkbView(edges, crs) => (edges, crs),
+        _ => return Ok(None),
+    };
+    let crs = sedona_crs_to_iceberg(crs);
+    Ok(Some(match edges {
+        Edges::Planar => PrimitiveType::Geometry { crs },
+        // Iceberg's geography `algorithm` has no SedonaDB counterpart (`Edges` is only
+        // planar/spherical), so it is left unset, which the spec reads as `spherical`.
+        Edges::Spherical => PrimitiveType::Geography {
+            crs,
+            algorithm: None,
+        },
+        // `Edges` is `#[non_exhaustive]`. Refuse rather than guess: silently writing a
+        // future edge interpolation as planar geometry would corrupt the column's meaning.
+        other => {
+            return plan_err!(
+                "Unsupported geometry edge interpolation for Iceberg conversion: {other}"
+            );
+        }
+    }))
+}
+
 pub fn iceberg_field_to_arrow(field: &NestedField) -> Result<ArrowField> {
     let nullable = !field.required;
     let mut metadata =
@@ -171,6 +229,8 @@ pub fn arrow_field_to_iceberg(field: &ArrowField) -> Result<NestedField> {
                 );
             }
             Type::Primitive(PrimitiveType::Variant)
+        } else if let Some(geo_primitive) = sedona_geo_primitive(field)? {
+            Type::Primitive(geo_primitive)
         } else {
             arrow_type_to_iceberg(field.data_type())?
         };
@@ -1019,6 +1079,99 @@ mod tests {
         assert_eq!(
             SedonaType::from_storage_field(&arrow_geog).expect("resolve sedona type"),
             SedonaType::Wkb(Edges::Spherical, Crs::None),
+        );
+    }
+
+    #[test]
+    fn test_geoarrow_field_to_iceberg_geometry_geography() {
+        // The write direction: a geoarrow.wkb column must land on Iceberg V3
+        // geometry/geography, not opaque binary (which is what every non-annotated
+        // Binary column still maps to).
+        let cases = [
+            (
+                SedonaType::Wkb(Edges::Planar, deserialize_crs("EPSG:3857").expect("crs")),
+                PrimitiveType::Geometry {
+                    crs: Some("EPSG:3857".to_string()),
+                },
+            ),
+            (
+                // sedona canonicalizes the lon/lat alias when it serializes the field
+                // metadata (`Crs::to_json`), so EPSG:4326 in gives OGC:CRS84 out. The two
+                // are the same CRS; the canonical spelling is axis-order-explicit.
+                SedonaType::Wkb(Edges::Planar, deserialize_crs("EPSG:4326").expect("crs")),
+                PrimitiveType::Geometry {
+                    crs: Some("OGC:CRS84".to_string()),
+                },
+            ),
+            (
+                SedonaType::Wkb(Edges::Planar, Crs::None),
+                PrimitiveType::Geometry { crs: None },
+            ),
+            (
+                SedonaType::Wkb(Edges::Spherical, deserialize_crs("OGC:CRS84").expect("crs")),
+                PrimitiveType::Geography {
+                    crs: Some("OGC:CRS84".to_string()),
+                    algorithm: None,
+                },
+            ),
+            (
+                // BinaryView storage resolves to the same Iceberg geometry type.
+                SedonaType::WkbView(Edges::Planar, Crs::None),
+                PrimitiveType::Geometry { crs: None },
+            ),
+        ];
+        for (sedona_type, expected) in cases {
+            let arrow_field = sedona_type
+                .to_storage_field("geom", true)
+                .expect("storage field");
+            let iceberg_field =
+                arrow_field_to_iceberg(&arrow_field).expect("convert geo field to Iceberg");
+            assert_eq!(
+                iceberg_field.field_type.as_ref(),
+                &Type::Primitive(expected),
+                "unexpected Iceberg type for {sedona_type:?}"
+            );
+            // Geometry/geography force the table to format-version 3.
+            assert!(iceberg_field.field_type.requires_format_v3());
+        }
+
+        // A plain Binary column (no geoarrow annotation) is still Iceberg binary.
+        let plain = ArrowField::new("payload", ArrowDataType::Binary, true);
+        assert_eq!(
+            arrow_field_to_iceberg(&plain)
+                .expect("convert binary field")
+                .field_type
+                .as_ref(),
+            &Type::Primitive(PrimitiveType::Binary),
+        );
+    }
+
+    #[test]
+    fn test_geometry_arrow_iceberg_arrow_roundtrip() {
+        // The writer round-trips the input Arrow schema through Iceberg
+        // (arrow_schema_to_iceberg -> iceberg_schema_to_arrow) to build the Parquet
+        // writer schema, so the geometry annotation has to survive both hops.
+        let geom = SedonaType::Wkb(Edges::Planar, deserialize_crs("OGC:CRS84").expect("crs"))
+            .to_storage_field("geom", true)
+            .expect("storage field");
+        let arrow_schema = ArrowSchema::new(vec![
+            ArrowField::new("id", ArrowDataType::Int64, false),
+            geom.clone(),
+        ]);
+
+        let iceberg_schema = arrow_schema_to_iceberg(&arrow_schema).expect("to iceberg");
+        assert_eq!(
+            iceberg_schema.fields()[1].field_type.as_ref(),
+            &Type::Primitive(PrimitiveType::Geometry {
+                crs: Some("OGC:CRS84".to_string())
+            }),
+        );
+
+        let roundtrip = iceberg_schema_to_arrow(&iceberg_schema).expect("back to arrow");
+        assert_eq!(roundtrip.field(1).data_type(), &ArrowDataType::Binary);
+        assert_eq!(
+            SedonaType::from_storage_field(roundtrip.field(1)).expect("resolve sedona type"),
+            SedonaType::from_storage_field(&geom).expect("resolve sedona type"),
         );
     }
 }
