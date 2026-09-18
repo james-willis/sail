@@ -34,6 +34,14 @@ impl<P: CatalogProvider> RuntimeAwareCatalogProvider<P> {
 
 #[async_trait::async_trait]
 impl<P: CatalogProvider + 'static> CatalogProvider for RuntimeAwareCatalogProvider<P> {
+    fn derives_table_location(&self) -> bool {
+        // Forward: the wrapped provider decides whether the catalog assigns table
+        // locations itself (an Iceberg REST catalog does). Without this the wrapper
+        // silently answered the trait default and CREATE TABLE fell back to the
+        // local warehouse directory.
+        self.inner.derives_table_location()
+    }
+
     fn get_name(&self) -> &str {
         self.inner.get_name()
     }
@@ -327,5 +335,37 @@ impl<P: CatalogProvider + 'static> CatalogProvider for RuntimeAwareCatalogProvid
             .spawn(async move { inner.drop_view(&database, &view, options).await })
             .await
             .map_err(|e| CatalogError::External(format!("Failed to execute drop_view: {e}")))?
+    }
+}
+
+#[cfg(test)]
+mod derives_table_location_tests {
+    use super::*;
+
+    /// A provider that says it derives table locations itself, wrapped the way the
+    /// session wraps every provider. The wrapper must forward the answer: when it fell
+    /// back to the trait default, `CREATE TABLE` in an Iceberg REST catalog invented a
+    /// path under the local warehouse directory instead of letting the catalog choose.
+    struct DerivingProvider;
+
+    #[async_trait::async_trait]
+    impl CatalogProvider for DerivingProvider {
+        fn get_name(&self) -> &str {
+            "deriving"
+        }
+
+        fn derives_table_location(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn runtime_aware_wrapper_forwards_derives_table_location() {
+        let wrapped = RuntimeAwareCatalogProvider::try_new(
+            || Ok(DerivingProvider),
+            tokio::runtime::Handle::current(),
+        )
+        .expect("wrap");
+        assert!(wrapped.derives_table_location());
     }
 }
