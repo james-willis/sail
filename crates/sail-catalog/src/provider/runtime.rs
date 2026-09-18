@@ -340,7 +340,9 @@ impl<P: CatalogProvider + 'static> CatalogProvider for RuntimeAwareCatalogProvid
 
 #[cfg(test)]
 mod derives_table_location_tests {
+    #![allow(unused_variables)]
     use super::*;
+    use crate::provider::*;
 
     /// A provider that says it derives table locations itself, wrapped the way the
     /// session wraps every provider. The wrapper must forward the answer: when it fell
@@ -356,6 +358,94 @@ mod derives_table_location_tests {
 
         fn derives_table_location(&self) -> bool {
             true
+        }
+
+        async fn create_database(
+            &self,
+            database: &Namespace,
+            options: CreateDatabaseOptions,
+        ) -> CatalogResult<DatabaseStatus> {
+            unimplemented!("create_database is not exercised by this test")
+        }
+
+        async fn get_database(&self, database: &Namespace) -> CatalogResult<DatabaseStatus> {
+            unimplemented!("get_database is not exercised by this test")
+        }
+
+        async fn list_databases(
+            &self,
+            prefix: Option<&Namespace>,
+        ) -> CatalogResult<Vec<DatabaseStatus>> {
+            unimplemented!("list_databases is not exercised by this test")
+        }
+
+        async fn drop_database(
+            &self,
+            database: &Namespace,
+            options: DropDatabaseOptions,
+        ) -> CatalogResult<()> {
+            unimplemented!("drop_database is not exercised by this test")
+        }
+
+        async fn create_table(
+            &self,
+            database: &Namespace,
+            table: &str,
+            options: CreateTableOptions,
+        ) -> CatalogResult<TableStatus> {
+            unimplemented!("create_table is not exercised by this test")
+        }
+
+        async fn get_table(&self, database: &Namespace, table: &str) -> CatalogResult<TableStatus> {
+            unimplemented!("get_table is not exercised by this test")
+        }
+
+        async fn list_tables(&self, database: &Namespace) -> CatalogResult<Vec<TableStatus>> {
+            unimplemented!("list_tables is not exercised by this test")
+        }
+
+        async fn drop_table(
+            &self,
+            database: &Namespace,
+            table: &str,
+            options: DropTableOptions,
+        ) -> CatalogResult<()> {
+            unimplemented!("drop_table is not exercised by this test")
+        }
+
+        async fn alter_table(
+            &self,
+            database: &Namespace,
+            table: &str,
+            options: AlterTableOptions,
+        ) -> CatalogResult<()> {
+            unimplemented!("alter_table is not exercised by this test")
+        }
+
+        async fn create_view(
+            &self,
+            database: &Namespace,
+            view: &str,
+            options: CreateViewOptions,
+        ) -> CatalogResult<TableStatus> {
+            unimplemented!("create_view is not exercised by this test")
+        }
+
+        async fn get_view(&self, database: &Namespace, view: &str) -> CatalogResult<TableStatus> {
+            unimplemented!("get_view is not exercised by this test")
+        }
+
+        async fn list_views(&self, database: &Namespace) -> CatalogResult<Vec<TableStatus>> {
+            unimplemented!("list_views is not exercised by this test")
+        }
+
+        async fn drop_view(
+            &self,
+            database: &Namespace,
+            view: &str,
+            options: DropViewOptions,
+        ) -> CatalogResult<()> {
+            unimplemented!("drop_view is not exercised by this test")
         }
     }
 
